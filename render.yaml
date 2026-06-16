@@ -1,0 +1,17 @@
+# Render.com Blueprint — Proyección de Portafolio (Streamlit)
+# Deploy: en Render → "New +" → "Blueprint" → conecta este repo. Render lee este archivo.
+# (También podés crear un "Web Service" manual con el mismo Build/Start command de abajo.)
+services:
+  - type: web
+    name: proyeccion-portafolio
+    runtime: python
+    plan: free                # "starter" ($7/mes) para que NO se duerma (recomendado para embed)
+    branch: main
+    autoDeploy: true          # redeploy automático en cada push a main
+    buildCommand: "pip install -r requirements.txt"
+    # $PORT lo inyecta Render; 0.0.0.0 + CORS/XSRF off = embebible en iframe
+    startCommand: "streamlit run dashboard/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"

@@ -1,0 +1,729 @@
+"""Proyección de Portafolio — entry point Streamlit (embed 1:1).
+
+Compara hasta dos portafolios (A vs B) con simulaciones Montecarlo. Proyección
+probabilística, no predicción. Sin barra lateral ni persistencia (no guarda nada).
+"""
+from __future__ import annotations
+
+import hmac
+import random
+import sys
+import time
+from pathlib import Path
+
+# ── Bootstrap de path ────────────────────────────────────────────────────────
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import numpy as np  # noqa: E402
+import streamlit as st  # noqa: E402
+
+from core import interpret, presets, sequence, stress  # noqa: E402
+from core.montecarlo import run_montecarlo  # noqa: E402
+from dashboard import charts, components  # noqa: E402
+from dashboard import styles as S  # noqa: E402
+from dashboard.styles import inject_css  # noqa: E402
+from data import market_data  # noqa: E402
+from data import tickers as tdir  # noqa: E402
+
+DEFAULT_A = [
+    {"symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "weight": 60.0},
+    {"symbol": "BND", "name": "Vanguard Total Bond Market ETF", "weight": 40.0},
+]
+DEFAULT_B = [{"symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "weight": 100.0}]
+MAX_ASSETS = 8
+BENCHMARK_SPECS = [("S&P 500 puro", ["SPY"], [100.0]), ("60/40", ["SPY", "BND"], [60.0, 40.0])]
+PCOLOR = {"A": S.ORANGE, "B": S.BLUE}
+PLABEL = {"A": "Portafolio A", "B": "Portafolio B"}
+
+
+# ── Password gate (Patrón 1) ─────────────────────────────────────────────────
+def _require_password() -> None:
+    try:
+        expected = st.secrets.get("APP_PASSWORD")
+    except Exception:
+        expected = None
+    if not expected or st.session_state.get("_auth_ok"):
+        return
+    with st.form("auth", clear_on_submit=False):
+        st.markdown("### Proyección de Portafolio")
+        pwd = st.text_input("pwd", type="password", label_visibility="collapsed", placeholder="Contraseña")
+        ok = st.form_submit_button("Entrar", use_container_width=True, type="primary")
+    if ok:
+        if hmac.compare_digest((pwd or "").encode(), expected.encode()):
+            st.session_state._auth_ok = True
+            st.rerun()
+        else:
+            st.error("Contraseña incorrecta")
+    st.stop()
+
+
+# ── Simulación ───────────────────────────────────────────────────────────────
+def compute(inputs: dict) -> dict:
+    stats = market_data.get_market_stats(inputs["tickers"], inputs["historical_window_years"])
+    return run_montecarlo(
+        initial_capital=inputs["initial_capital"], monthly_contribution=inputs["monthly_contribution"],
+        horizon_years=inputs["horizon_years"], tickers=inputs["tickers"], weights=inputs["weights"],
+        n_simulations=inputs["n_simulations"], distribution=inputs["distribution"],
+        annual_fees_pct=inputs["annual_fees_pct"], annual_tax_on_gains_pct=inputs["annual_tax_on_gains_pct"],
+        historical_window_years=inputs["historical_window_years"], target=inputs["target"],
+        random_seed=inputs["random_seed"], market_stats=stats)
+
+
+def run_benchmarks(base: dict) -> list[dict]:
+    return [{"label": label, "result": compute(dict(base, tickers=tk, weights=wt))}
+            for label, tk, wt in BENCHMARK_SPECS]
+
+
+def _build_extras(inputs: dict, result: dict) -> dict:
+    extras: dict = {}
+    if inputs.get("show_stress"):
+        try:
+            p50 = float(np.percentile(result["final_values"], 50))
+            extras["stress"] = stress.compute_stress(inputs["tickers"], inputs["weights"], p50,
+                                                     inputs["historical_window_years"])
+        except Exception:
+            extras["stress"] = None
+    if inputs.get("show_sequence"):
+        try:
+            stats = market_data.get_market_stats(inputs["tickers"], inputs["historical_window_years"])
+            am, asd = sequence.portfolio_annual_moments(stats, inputs["weights"])
+            extras["sequence"] = sequence.sequence_demo(
+                inputs["initial_capital"], inputs["monthly_contribution"],
+                inputs["horizon_years"], am, asd, inputs["random_seed"])
+        except Exception:
+            extras["sequence"] = None
+    return extras
+
+
+# ── Estado de portafolios (A siempre; B opcional) ────────────────────────────
+def _init_portfolios() -> None:
+    st.session_state.setdefault("portfolios", {"A": [dict(x) for x in DEFAULT_A]})
+
+
+def set_portfolio(pid: str, symbols: list[str], weights: list[float]) -> None:
+    st.session_state.portfolios[pid] = [
+        {"symbol": s, "name": tdir.get_name(s), "weight": float(w)} for s, w in zip(symbols, weights)]
+
+
+def _add_ticker(pid: str, symbol: str, name: str) -> None:
+    pf = st.session_state.portfolios[pid]
+    if any(it["symbol"] == symbol for it in pf):
+        return
+    if len(pf) >= MAX_ASSETS:
+        st.toast(f"Máximo {MAX_ASSETS} activos.")
+        return
+    pf.append({"symbol": symbol, "name": name, "weight": 10.0})
+
+
+def _palette_for(lead: str) -> list[str]:
+    base = charts.DONUT_COLORS
+    if lead in base:
+        i0 = base.index(lead)
+        return base[i0:] + base[:i0]
+    return list(base)
+
+
+# ── Buscador + lista + dona (por portafolio) ─────────────────────────────────
+def render_portfolio_builder(pid: str, capital: float) -> tuple[list[str], list[float], float]:
+    pf = st.session_state.portfolios[pid]
+    lead = PCOLOR[pid]
+    palette = _palette_for(lead)
+    if st.session_state.pop(f"_clear_{pid}", False):
+        st.session_state[f"q_{pid}"] = ""
+
+    pc1, pc2 = st.columns([3, 1])
+    preset_opts = [("", "Cargar portafolio predefinido…")] + presets.list_presets()
+    chosen = pc1.selectbox("Atajo", options=[k for k, _ in preset_opts],
+                           format_func=lambda k: dict(preset_opts)[k],
+                           label_visibility="collapsed", key=f"preset_{pid}")
+    if pc2.button("Cargar", use_container_width=True, key=f"cargar_{pid}") and chosen:
+        p = presets.get_preset(chosen)
+        set_portfolio(pid, p["tickers"], p["weights"])
+        st.rerun()
+
+    left, right = st.columns([1.15, 1], gap="large")
+    with left:
+        st.text_input("Buscar activo", key=f"q_{pid}", label_visibility="collapsed",
+                      placeholder="🔍  Busca por símbolo o nombre (ej: AAPL, Apple, SPY)")
+        query = st.session_state.get(f"q_{pid}", "")
+        if query:
+            results = tdir.search_tickers(query, limit=6)
+            with components.search_menu(pid):
+                st.markdown("<div class='dlp-search-hd'>Resultados — NYSE / NASDAQ</div>",
+                            unsafe_allow_html=True)
+                if not results:
+                    st.caption("Sin coincidencias. Prueba con otro símbolo o nombre.")
+                for r in results:
+                    rc1, rc2 = st.columns([6, 1])
+                    rc1.markdown(components.ticker_result_card(r), unsafe_allow_html=True)
+                    if rc2.button("➕", key=f"add_{pid}_{r['symbol']}", use_container_width=True):
+                        _add_ticker(pid, r["symbol"], r["name"])
+                        st.session_state[f"_clear_{pid}"] = True
+                        st.rerun()
+
+        st.markdown("<div class='dlp-side-title'>En tu portafolio</div>", unsafe_allow_html=True)
+        if not pf:
+            st.caption("Agrega al menos un activo desde el buscador.")
+        total_w = sum(max(it["weight"], 0) for it in pf)
+        for i, it in enumerate(pf):
+            dot = palette[i % len(palette)]
+            wc1, wc2, wc3 = st.columns([3, 2, 1])
+            usd = (it["weight"] / total_w * capital) if total_w > 0 else 0
+            wc1.markdown(
+                f"<div style='padding-top:8px'><span style='color:{dot};font-size:16px'>●</span> "
+                f"<b style='color:{S.TEXT_HI};font-size:15px'>{it['symbol']}</b> "
+                f"<span style='color:{S.TEXT_LO};font-size:12px'>· ${usd:,.0f}</span><br>"
+                f"<span style='color:{S.TEXT_LO};font-size:11px;padding-left:20px'>{it['name'][:24]}</span></div>",
+                unsafe_allow_html=True)
+            it["weight"] = wc2.number_input(
+                "peso", value=float(it["weight"]), min_value=0.0, max_value=100.0, step=5.0,
+                key=f"pw_{pid}_{it['symbol']}", label_visibility="collapsed", format="%.0f")
+            if wc3.button("✕", key=f"rm_{pid}_{it['symbol']}", use_container_width=True):
+                st.session_state.portfolios[pid] = [x for x in pf if x["symbol"] != it["symbol"]]
+                st.rerun()
+        st.caption(f"Suma de pesos: {total_w:.0f}% · se normaliza al 100% automáticamente.")
+
+    with right:
+        if pf and total_w > 0:
+            st.plotly_chart(charts.allocation_donut(pf, lead_color=lead), use_container_width=True,
+                            config={"displayModeBar": False}, key=f"donut_{pid}")
+
+    symbols = [it["symbol"] for it in pf]
+    weights = [it["weight"] for it in pf]
+    return symbols, weights, sum(max(w, 0) for w in weights)
+
+
+# ── Inputs (plan compartido + A/B + avanzadas) ───────────────────────────────
+def render_inputs() -> dict | None:
+    _init_portfolios()
+    pfA = st.session_state.portfolios["A"]
+    a_ok = bool(pfA) and sum(max(it["weight"], 0) for it in pfA) > 0
+    components.stepper(a_ok)
+
+    with components.card("plan"):
+        components.card_head("◆", "Tu plan", "Aplica a ambos portafolios por igual")
+        c1, c2 = st.columns(2)
+        capital = c1.number_input(
+            "Capital inicial (USD)", min_value=0.0, value=10_000.0, step=500.0, format="%.0f",
+            help="El dinero con el que empiezas a invertir hoy.")
+        aporte = c2.number_input(
+            "Aporte mensual (USD)", min_value=0.0, value=500.0, step=50.0, format="%.0f",
+            help="Cuánto sumas cada mes. El hábito de aportar es lo que más mueve el resultado.")
+        c3, c4 = st.columns(2)
+        horizonte = c3.slider(
+            "Horizonte (años)", min_value=1, max_value=40, value=20,
+            help="Por cuántos años proyectas. Más tiempo = más interés compuesto y más incertidumbre.")
+        meta = c4.number_input(
+            "Meta final (USD, opcional)", min_value=0.0, value=0.0, step=10_000.0, format="%.0f",
+            help="Opcional: el patrimonio que te gustaría alcanzar. Verás la probabilidad de lograrlo.")
+
+    has_b = "B" in st.session_state.portfolios
+    symB: list[str] | None = None
+    wB: list[float] = []
+    twB = 0.0
+    with components.card("portafolio"):
+        if not has_b:
+            components.card_head("◆", "Tu portafolio", "Busca y agrega activos del NYSE / NASDAQ")
+            symA, wA, twA = render_portfolio_builder("A", capital)
+        else:
+            components.card_head("◆", "Compara A vs B", "Edita ambos; la simulación corre los dos")
+            tA, tB = st.tabs(["🟠  Portafolio A", "🔵  Portafolio B"])
+            with tA:
+                symA, wA, twA = render_portfolio_builder("A", capital)
+            with tB:
+                if st.button("✕  Quitar Portafolio B", key="rmb"):
+                    del st.session_state.portfolios["B"]
+                    st.rerun()
+                symB, wB, twB = render_portfolio_builder("B", capital)
+
+    if not has_b:
+        with st.container(key="addb"):
+            if st.button("＋  Agregar Portafolio B para comparar", use_container_width=True):
+                st.session_state.portfolios["B"] = [dict(x) for x in DEFAULT_B]
+                st.rerun()
+
+    a_ready = bool(symA) and twA > 0
+    b_ready = (not has_b) or (bool(symB) and twB > 0)
+
+    # Defaults de avanzadas
+    dist_label, fees, tax = "Normal", 0.0, 0.0
+    compare = retirement = show_stress = show_sequence = False
+    withdrawal = 1_500.0
+
+    if not (a_ready and b_ready):
+        msg = ("Agrega un activo al Portafolio A para proyectar" if not a_ready
+               else "Agrega un activo al Portafolio B (o quítalo) para proyectar")
+        st.button(f"🔒  {msg}", type="primary", use_container_width=True, disabled=True)
+        return None
+
+    with st.expander("◆ Opciones avanzadas — modelo, costos, retiro, stress, benchmarks"):
+        dist_label = st.radio("Modelo de retornos", ["Normal", "t-Student (colas gordas)"],
+                              horizontal=True,
+                              help="t-Student suma realismo a caídas y extremos de corto/mediano plazo; "
+                                   "sobre 20 años i.i.d. el efecto en el patrimonio final es modesto.")
+        fc1, fc2 = st.columns(2)
+        fees = fc1.number_input(
+            "Fees anuales (%)", min_value=0.0, max_value=5.0, value=0.0, step=0.1,
+            help="Costo anual del fondo o portafolio (comisiones + gastos). Reduce tu rendimiento.")
+        tax = fc2.number_input(
+            "Impuesto anual s/ ganancias (%)", min_value=0.0, max_value=50.0, value=0.0, step=1.0,
+            help="Impuesto que pagas cada año sobre las ganancias. Aproxima una cuenta gravable.")
+        compare = st.checkbox(
+            "Comparar también contra benchmarks (S&P 500 puro y 60/40)",
+            help="Suma al gráfico el S&P 500 y una mezcla clásica 60% acciones / 40% bonos.")
+        st.divider()
+        retirement = st.checkbox(
+            "Modo retiro (en vez de aportar, retiras)",
+            help="Simula que ya no aportas sino que retiras dinero cada mes (modo jubilación).")
+        withdrawal = st.number_input(
+            "Retiro mensual (USD) — modo retiro", min_value=0.0, value=1_500.0, step=100.0, format="%.0f",
+            help="Cuánto retiras por mes cuando activas el modo retiro.")
+        cs1, cs2 = st.columns(2)
+        show_stress = cs1.checkbox(
+            "Stress test histórico",
+            help="Estima cuánto caería cada portafolio ante una crisis como 2008 o el COVID.")
+        show_sequence = cs2.checkbox(
+            "Secuencia de retornos",
+            help="Muestra cómo el ORDEN en que llegan los buenos y malos años cambia el resultado.")
+
+    label = "◈  Comparar A vs B — 10.000 escenarios" if has_b else "◈  Correr proyección — 10.000 escenarios"
+    if not st.button(label, type="primary", use_container_width=True):
+        return None
+
+    all_syms = list(dict.fromkeys(symA + (symB or [])))
+    with st.spinner("Validando tickers…"):
+        valid, invalid = market_data.validate_tickers(all_syms)
+    if invalid:
+        st.error(f"No se encontraron en el mercado: {', '.join(invalid)}.")
+        return None
+
+    monthly_flow = -withdrawal if retirement else aporte
+    base = {
+        "initial_capital": capital, "monthly_contribution": monthly_flow,
+        "horizon_years": int(horizonte),
+        "target": (meta if (meta > 0 and not retirement) else None),
+        "historical_window_years": 10, "n_simulations": 10_000,
+        "distribution": "t-student" if dist_label.startswith("t-") else "normal",
+        "annual_fees_pct": fees, "annual_tax_on_gains_pct": tax,
+        "compare": compare, "show_stress": show_stress, "show_sequence": show_sequence,
+        "random_seed": random.randrange(1_000_000_000),  # mismo seed A y B (comparación justa)
+    }
+    return {
+        "base": base,
+        "A": {"tickers": symA, "weights": [w / twA for w in wA]},
+        "B": ({"tickers": symB, "weights": [w / twB for w in wB]} if has_b else None),
+    }
+
+
+# ── Helpers de render ────────────────────────────────────────────────────────
+def _success_color(prob: float) -> str:
+    return S.GREEN if prob >= 0.70 else (S.ORANGE if prob >= 0.50 else S.RED)
+
+
+def _md_money(text: str) -> str:
+    """Escapa '$' para que Streamlit no lo interprete como LaTeX (solo en markdown puro)."""
+    return text.replace("$", "\\$")
+
+
+def _b(txt, color=S.TEXT_HI) -> str:
+    return f"<b style='color:{color}'>{txt}</b>"
+
+
+def _lectura_card(color: str, html: str) -> None:
+    st.markdown(f"<div class='dlp-card dlp-card-left' style='border-left-color:{color};'>"
+                f"<div class='kpi-label'>Lectura</div>"
+                f"<div style='color:{S.TEXT_MD};font-size:15px;margin-top:8px;line-height:1.55;'>"
+                f"{_md_money(html)}</div></div>", unsafe_allow_html=True)
+
+
+# ── Resultados de UN portafolio (reusable: single y detalle A/B) ─────────────
+def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, with_actions=True,
+                  elapsed=None) -> None:
+    extras = extras or {}
+    fv = result["final_values"]
+    p5, p25, p50, p75, p95 = (float(np.percentile(fv, q)) for q in (5, 25, 50, 75, 95))
+    years = inputs["horizon_years"]
+    retirement = inputs["monthly_contribution"] < 0
+    flow_label = "Retiro mensual" if retirement else "Aporte mensual"
+    items = [{"symbol": t, "weight": w * 100} for t, w in zip(inputs["tickers"], inputs["weights"])]
+
+    if with_hero:
+        if result["is_sample"]:
+            components.sample_data_notice()
+        components.hero_card(
+            glyph="◈", caption="Proyección de portafolio",
+            meta_items=[("Capital inicial", components.fmt_money(inputs["initial_capital"])),
+                        (flow_label, components.fmt_money(abs(inputs["monthly_contribution"]))),
+                        ("Horizonte", f"{years} años")],
+            highlight_label=f"Mediana a {years} años",
+            highlight_value=components.fmt_money(p50), highlight_color=S.ORANGE)
+        components.disclaimer_banner()
+
+    if retirement:
+        ruin = result["probability_of_ruin"]
+        takeaway = (f"Retirando {_b(components.fmt_money(abs(inputs['monthly_contribution'])) + ' por mes')} durante "
+                    f"{_b(str(years) + ' años')}, en {_b(f'{ruin*100:.0f}%', S.RED)} de los escenarios te quedas "
+                    f"sin dinero antes de tiempo. Lo más probable es terminar con {_b(components.fmt_money(p50), S.ORANGE)}.")
+    else:
+        takeaway = (f"En {_b(str(years) + ' años')}, lo más probable es llegar a "
+                    f"{_b(components.fmt_money(p50), S.ORANGE)}. En la mitad de los escenarios terminas entre "
+                    f"{_b(components.fmt_money(p25))} y {_b(components.fmt_money(p75))}; en casos extremos, entre "
+                    f"{_b(components.fmt_money(p5), S.RED)} (si va mal) y "
+                    f"{_b(components.fmt_money(p95), S.GREEN)} (si va bien).")
+
+    tab_names = ["Resumen", "¿Alcanzo mi meta?", "Riesgos"]
+    if benchmarks:
+        tab_names.append("Comparar")
+    tabs = st.tabs(tab_names)
+
+    with tabs[0]:
+        with components.card(f"res-top-{kp}"):
+            components.card_head("◆", "Tu proyección en una frase")
+            st.markdown(f"<div style='font-size:16px;color:{S.TEXT_MD};line-height:1.6;margin-bottom:6px'>"
+                        f"{takeaway}</div>", unsafe_allow_html=True)
+            dc, kc = st.columns([1, 1.25], gap="large")
+            with dc:
+                st.plotly_chart(charts.allocation_donut(items), use_container_width=True,
+                                config={"displayModeBar": False}, key=f"donut_res_{kp}")
+            with kc:
+                k1, k2, k3 = st.columns(3)
+                with k1:
+                    components.kpi_tile("Si va mal", components.fmt_money(p5), S.RED, "1 de 20 (P5)")
+                with k2:
+                    components.kpi_tile("Lo más probable", components.fmt_money(p50), S.ORANGE, "el del medio")
+                with k3:
+                    components.kpi_tile("Si va bien", components.fmt_money(p95), S.GREEN, "1 de 20 (P95)")
+        with components.card(f"res-fan-{kp}"):
+            components.card_head("◆", "Tus 10.000 futuros posibles", "pasa el cursor para leer cada año")
+            st.plotly_chart(charts.fan_chart(result["percentiles"], result["months"], inputs["target"]),
+                            use_container_width=True, config={"displayModeBar": False}, key=f"fan_{kp}")
+        with components.card(f"res-interp-{kp}"):
+            components.card_head("◆", "¿Qué significa esto?")
+            st.markdown(_md_money(interpret.interpret_locally(result, inputs, extras.get("stress"))))
+            if with_actions:
+                _render_ai_optional(result, inputs, extras.get("stress"))
+
+    with tabs[1]:
+        with components.card(f"dist-hist-{kp}"):
+            components.card_head("◆", "Distribución del patrimonio final", "dónde caen los 10.000 resultados")
+            st.plotly_chart(charts.histogram_final(fv), use_container_width=True,
+                            config={"displayModeBar": False}, key=f"hist_{kp}")
+        if retirement:
+            ruin = result["probability_of_ruin"]
+            col = S.GREEN if ruin < 0.05 else S.ORANGE if ruin < 0.20 else S.RED
+            with components.card(f"dist-ruin-{kp}"):
+                components.card_head("◆", "Riesgo de ruina (modo retiro)")
+                g, t = st.columns([1, 1])
+                g.plotly_chart(charts.ruin_gauge(ruin), use_container_width=True,
+                               config={"displayModeBar": False}, key=f"ruin_{kp}")
+                with t:
+                    _lectura_card(col, f"Retirando {components.fmt_money(abs(inputs['monthly_contribution']))}/mes, "
+                                  f"tu capital se agotó antes de los {years} años en "
+                                  f"<b style='color:{col}'>{ruin*100:.0f}%</b> de los escenarios.")
+        elif inputs["target"]:
+            prob = result["prob_target"] or 0.0
+            with components.card(f"dist-meta-{kp}"):
+                components.card_head("◆", "Probabilidad de alcanzar tu meta")
+                g, t = st.columns([1, 1])
+                g.plotly_chart(charts.success_gauge(prob, f"Meta {components.fmt_money(inputs['target'])}"),
+                               use_container_width=True, config={"displayModeBar": False}, key=f"gauge_{kp}")
+                with t:
+                    _lectura_card(_success_color(prob),
+                                  f"En <b style='color:{_success_color(prob)}'>{prob*100:.0f}%</b> de los 10.000 "
+                                  f"escenarios alcanzaste {components.fmt_money(inputs['target'])} a {years} años. "
+                                  f"No es garantía: los retornos futuros pueden diferir.")
+        else:
+            st.info("Ingresa una meta de patrimonio en 'Tu plan' para ver la probabilidad de alcanzarla.")
+
+    with tabs[2]:
+        with components.card(f"risk-metrics-{kp}"):
+            components.card_head("◆", "Riesgos en detalle", "para quien quiere profundizar")
+            m = st.columns(4)
+            with m[0]:
+                components.kpi_tile("Caída típica", components.fmt_pct(result["max_drawdown_typical"]),
+                                    S.BLUE, "en un mal momento")
+            with m[1]:
+                components.kpi_tile("Eficiencia", f"{result['expected_sharpe']:.2f}", S.GOLD, "Sharpe")
+            with m[2]:
+                components.kpi_tile("Riesgo de ruina", components.fmt_pct(result["probability_of_ruin"]),
+                                    S.TEXT_LO, "llega a $0")
+            with m[3]:
+                if retirement:
+                    components.kpi_tile("Retiro por año", components.fmt_money(abs(inputs["monthly_contribution"]) * 12),
+                                        S.TEXT_MD, "lo que sacas")
+                else:
+                    components.kpi_tile("Lo que aportas", components.fmt_money(
+                        inputs["initial_capital"] + inputs["monthly_contribution"] * 12 * years),
+                        S.TEXT_MD, "sin rendimiento")
+        sd = extras.get("stress")
+        if sd:
+            with components.card(f"risk-stress-{kp}"):
+                components.card_head("◆", "Stress test — eventos históricos", f"β={sd['beta']:.2f} al S&P 500")
+                st.plotly_chart(charts.stress_bar(sd), use_container_width=True,
+                                config={"displayModeBar": False}, key=f"stress_{kp}")
+                st.caption(_md_money(f"◇ Escalado por la beta del portafolio sobre la mediana "
+                           f"({components.fmt_money(sd['reference_value'])}). Magnitud de referencia, no predicción."))
+        seq = extras.get("sequence")
+        if seq:
+            with components.card(f"risk-seq-{kp}"):
+                components.card_head("◆", "Riesgo de secuencia de retornos")
+                st.plotly_chart(charts.sequence_lines(seq), use_container_width=True,
+                                config={"displayModeBar": False}, key=f"seq_{kp}")
+                o = seq["orderings"]
+                wf, bf = o["Peores años primero"]["terminal"], o["Mejores años primero"]["terminal"]
+                if seq["mode"] == "acumulación":
+                    st.caption(_md_money(f"Mismo set de retornos, distinto orden. En acumulación, peores años "
+                               f"primero termina mejor ({components.fmt_money(wf)} vs {components.fmt_money(bf)})."))
+                else:
+                    st.caption(_md_money(f"En retiro, peores años primero termina peor "
+                               f"({components.fmt_money(wf)} vs {components.fmt_money(bf)})."))
+        if not sd and not seq:
+            st.info("Activa 'Stress test' o 'Secuencia de retornos' en Opciones avanzadas para más análisis.")
+
+    if benchmarks:
+        with tabs[3]:
+            scen = [{"label": "Tu portafolio", "percentiles": result["percentiles"]}]
+            scen += [{"label": b["label"], "percentiles": b["result"]["percentiles"]} for b in benchmarks]
+            with components.card(f"cmp-{kp}"):
+                components.card_head("◆", "Tu portafolio vs benchmarks", "S&P 500 puro · 60/40")
+                st.plotly_chart(charts.comparison_fan_chart(scen, result["months"], inputs["target"]),
+                                use_container_width=True, config={"displayModeBar": False}, key=f"cmpfan_{kp}")
+
+    if with_actions:
+        st.divider()
+        _render_pdf_button(result, inputs, benchmarks)
+        if elapsed is not None:
+            dist = "t-Student" if inputs["distribution"] == "t-student" else "Normal"
+            st.caption(f"◇ {inputs['n_simulations']:,} escenarios · {dist} · {elapsed:.1f}s · "
+                       f"ventana {inputs['historical_window_years']} años")
+
+
+# ── Resultados COMPARATIVOS A vs B ───────────────────────────────────────────
+def _compare_verdict(rA, iA, rB) -> tuple[str, str]:
+    medA, medB = (float(np.percentile(rA["final_values"], 50)), float(np.percentile(rB["final_values"], 50)))
+    ddA, ddB = rA["max_drawdown_typical"] * 100, rB["max_drawdown_typical"] * 100
+    high, hcol = ("A", S.ORANGE) if medA >= medB else ("B", S.BLUE)
+    low_dd, lcol = ("A", S.ORANGE) if ddA <= ddB else ("B", S.BLUE)
+    m_high, m_low = (medA, medB) if high == "A" else (medB, medA)
+    dd_low_val = min(ddA, ddB)
+    dd_high_val = max(ddA, ddB)
+    parts = [f"En la mediana, el {_b(PLABEL[high], hcol)} proyecta más "
+             f"({components.fmt_money(m_high)} vs {components.fmt_money(m_low)})."]
+    if low_dd == high:
+        parts.append(f"Y además es el más estable (caída típica {dd_low_val:.0f}% vs {dd_high_val:.0f}%): "
+                     f"luce mejor en crecimiento y en estabilidad — aunque no es garantía.")
+        lead = hcol
+    else:
+        parts.append(f"Pero el {_b(PLABEL[low_dd], lcol)} es más estable (caída típica menor: "
+                     f"{dd_low_val:.0f}% vs {dd_high_val:.0f}%). Es un trade-off entre crecimiento y "
+                     f"estabilidad: depende de tu tolerancia al riesgo.")
+        lead = S.GOLD
+    if iA.get("target"):
+        pA, pB = (rA["prob_target"] or 0) * 100, (rB["prob_target"] or 0) * 100
+        bp, bpcol = ("A", S.ORANGE) if pA >= pB else ("B", S.BLUE)
+        parts.append(f"Para tu meta, el {_b(PLABEL[bp], bpcol)} tiene mayor probabilidad de alcanzarla "
+                     f"({max(pA, pB):.0f}% vs {min(pA, pB):.0f}%).")
+    return " ".join(parts), lead
+
+
+def _compo(inputs) -> str:
+    """Resumen corto de composición: '60% SPY · 40% BND'."""
+    pairs = sorted(zip(inputs["tickers"], inputs["weights"]), key=lambda x: -x[1])
+    s = " · ".join(f"{round(w * 100)}% {t}" for t, w in pairs[:3])
+    return s + (" …" if len(pairs) > 3 else "")
+
+
+def _side_head(pid: str, med: float, compo: str) -> str:
+    col = PCOLOR[pid]
+    return (f"<div class='dlp-side'><div class='nm' style='color:{col}'>{PLABEL[pid]}</div>"
+            f"<div class='big' style='color:{col}'>{components.fmt_money(med)}</div>"
+            f"<div class='sub'>mediana · {compo}</div></div>")
+
+
+def _metric_bars(rA, rB, iA) -> str:
+    """Barras enfrentadas A (naranja) vs B (azul) por métrica, con ◆ en el ganador."""
+    def q(fv, p):
+        return float(np.percentile(fv, p))
+    fvA, fvB = rA["final_values"], rB["final_values"]
+    rows = [("Mediana", q(fvA, 50), q(fvB, 50), "high", "money"),
+            ("Si va mal (P5)", q(fvA, 5), q(fvB, 5), "high", "money"),
+            ("Si va bien (P95)", q(fvA, 95), q(fvB, 95), "high", "money")]
+    if iA.get("target"):
+        rows.append(("Prob. de alcanzar la meta", (rA["prob_target"] or 0) * 100,
+                     (rB["prob_target"] or 0) * 100, "high", "pct"))
+    rows += [("Caída típica (menos es mejor)", rA["max_drawdown_typical"] * 100,
+              rB["max_drawdown_typical"] * 100, "low", "pct"),
+             ("Eficiencia (Sharpe)", rA["expected_sharpe"], rB["expected_sharpe"], "high", "num")]
+
+    def fmt(v, kind):
+        return components.fmt_money(v) if kind == "money" else (f"{v:.0f}%" if kind == "pct" else f"{v:.2f}")
+
+    html = ""
+    for name, a, b, better, kind in rows:
+        a_win = (a >= b) if better == "high" else (a <= b)
+        mx = max(abs(a), abs(b)) or 1.0
+        wa, wb = max(6, abs(a) / mx * 100), max(6, abs(b) / mx * 100)
+        aw = " m-win" if a_win else ""
+        bw = " m-win" if not a_win else ""
+        html += (
+            f"<div class='dlp-vsm'><div class='m-lbl'>{name}</div>"
+            f"<div class='m-row'><span class='m-tag' style='color:{S.ORANGE}'>A</span>"
+            f"<div class='m-track'><div class='m-fill' style='width:{wa:.0f}%;background:{S.ORANGE}'></div></div>"
+            f"<span class='m-val{aw}'>{fmt(a, kind)}</span></div>"
+            f"<div class='m-row'><span class='m-tag' style='color:{S.BLUE}'>B</span>"
+            f"<div class='m-track'><div class='m-fill' style='width:{wb:.0f}%;background:{S.BLUE}'></div></div>"
+            f"<span class='m-val{bw}'>{fmt(b, kind)}</span></div></div>")
+    return html
+
+
+def render_compare(rA, iA, exA, rB, iB, exB, benchmarks, elapsed=None) -> None:
+    components.disclaimer_banner()
+    medA = float(np.percentile(rA["final_values"], 50))
+    medB = float(np.percentile(rB["final_values"], 50))
+    itemsA = [{"symbol": t, "weight": w * 100} for t, w in zip(iA["tickers"], iA["weights"])]
+    itemsB = [{"symbol": t, "weight": w * 100} for t, w in zip(iB["tickers"], iB["weights"])]
+
+    # Cara a cara: A · VS · B con dona e identidad de color
+    with components.card("cmp-vs"):
+        components.card_head("◆", "Cara a cara", "Portafolio A vs Portafolio B")
+        ca, cv, cb = st.columns([1, 0.22, 1])
+        with ca:
+            st.markdown(_side_head("A", medA, _compo(iA)), unsafe_allow_html=True)
+            st.plotly_chart(charts.allocation_donut(itemsA, lead_color=S.ORANGE), use_container_width=True,
+                            config={"displayModeBar": False}, key="vs_dA")
+        with cv:
+            st.markdown("<div class='dlp-vs-badge'><span>VS</span></div>", unsafe_allow_html=True)
+        with cb:
+            st.markdown(_side_head("B", medB, _compo(iB)), unsafe_allow_html=True)
+            st.plotly_chart(charts.allocation_donut(itemsB, lead_color=S.BLUE), use_container_width=True,
+                            config={"displayModeBar": False}, key="vs_dB")
+
+    # Veredicto honesto
+    verdict, lead = _compare_verdict(rA, iA, rB)
+    with components.card("cmp-verdict"):
+        components.card_head("◆", "Veredicto", "¿cuál proyecta mejor?")
+        components.verdict_card(lead, verdict)
+
+    # Métrica a métrica (barras enfrentadas)
+    with components.card("cmp-bars"):
+        components.card_head("◆", "Métrica a métrica", "◆ = mejor")
+        st.markdown(_metric_bars(rA, rB, iA), unsafe_allow_html=True)
+
+    # Proyección comparada (overlay)
+    with components.card("cmp-fan"):
+        components.card_head("◆", "Proyección comparada", "mediana + rango de cada portafolio")
+        scen = [{"label": "Portafolio A", "percentiles": rA["percentiles"]},
+                {"label": "Portafolio B", "percentiles": rB["percentiles"]}]
+        if benchmarks:
+            scen += [{"label": b["label"], "percentiles": b["result"]["percentiles"]} for b in benchmarks]
+        st.plotly_chart(charts.comparison_fan_chart(scen, rA["months"], iA["target"]),
+                        use_container_width=True, config={"displayModeBar": False}, key="cmp_fan")
+
+    with st.expander("Ver detalle de cada portafolio"):
+        dtA, dtB = st.tabs(["🟠  Detalle A", "🔵  Detalle B"])
+        with dtA:
+            render_single(rA, iA, exA, None, "dA", with_hero=False, with_actions=False)
+        with dtB:
+            render_single(rB, iB, exB, None, "dB", with_hero=False, with_actions=False)
+
+    st.divider()
+    _render_pdf_button(rA, iA, benchmarks)
+    if elapsed is not None:
+        dist = "t-Student" if iA["distribution"] == "t-student" else "Normal"
+        st.caption(f"◇ 2 portafolios × {iA['n_simulations']:,} escenarios · {dist} · {elapsed:.1f}s · "
+                   f"ventana {iA['historical_window_years']} años")
+
+
+def _render_ai_optional(result, inputs, stress_data) -> None:
+    with st.expander("Interpretación con IA (opcional — usa créditos de API)"):
+        if not interpret.claude_available():
+            st.caption("Configura ANTHROPIC_API_KEY en secrets para habilitarla. "
+                       "La interpretación de arriba ya es completa y gratis.")
+            return
+        st.warning("Esto llama a la API de Anthropic y **consume créditos**.")
+        if st.button("Generar interpretación con IA", key="aibtn"):
+            with st.spinner("Consultando a Claude…"):
+                try:
+                    st.session_state["ai_text"] = interpret.interpret_with_claude(result, inputs, stress_data)
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"No se pudo generar: {e}")
+        if st.session_state.get("ai_text"):
+            st.markdown(st.session_state["ai_text"])
+
+
+def _render_pdf_button(result, inputs, benchmarks) -> None:
+    from dashboard import pdf_report
+    if st.button("▸  Descargar PDF ejecutivo (3 páginas)", use_container_width=True, key="pdfbtn"):
+        with st.spinner("Generando PDF…"):
+            try:
+                bench = benchmarks or run_benchmarks(inputs)
+                st.session_state["pdf_bytes"] = pdf_report.generate_report(result, inputs, bench)
+            except Exception as e:  # noqa: BLE001
+                st.error(f"No se pudo generar el PDF: {e}")
+                st.session_state["pdf_bytes"] = None
+    if st.session_state.get("pdf_bytes"):
+        st.download_button("⬇  Guardar PDF", data=st.session_state["pdf_bytes"],
+                           file_name="proyeccion_portafolio.pdf", mime="application/pdf",
+                           use_container_width=True)
+
+
+# ── App ──────────────────────────────────────────────────────────────────────
+def _loader_msg(pct: int) -> str:
+    if pct < 30:
+        return "Bajando datos de mercado…"
+    if pct < 60:
+        return "Corriendo 10.000 simulaciones…"
+    if pct < 85:
+        return "Midiendo riesgos y percentiles…"
+    return "Armando tu proyección…"
+
+
+def main() -> None:
+    st.set_page_config(page_title="Proyección de Portafolio", page_icon="◈",
+                       layout="centered", initial_sidebar_state="collapsed")
+    inject_css()
+    _require_password()
+    components.page_hero()
+
+    spec = render_inputs()
+    if spec is not None:
+        base = spec["base"]
+        inputs_A = dict(base, **spec["A"])
+        inputs_B = dict(base, **spec["B"]) if spec["B"] else None
+
+        target = random.uniform(9.0, 15.0)
+        t0 = time.perf_counter()
+        loader = st.empty()
+        loader.markdown(components.progress_ring(0, "Preparando tu proyección…"), unsafe_allow_html=True)
+        result_A = compute(inputs_A)
+        result_B = compute(inputs_B) if inputs_B else None
+        benchmarks = run_benchmarks(inputs_A) if base["compare"] else None
+        extras_A = _build_extras(inputs_A, result_A)
+        extras_B = _build_extras(inputs_B, result_B) if inputs_B else None
+        remaining = max(target - (time.perf_counter() - t0), 3.0)
+        steps = max(int(remaining / 0.09), 24)
+        for i in range(steps + 1):
+            loader.markdown(components.progress_ring(round(i / steps * 100), _loader_msg(round(i / steps * 100))),
+                            unsafe_allow_html=True)
+            time.sleep(remaining / steps)
+        loader.empty()
+        st.session_state.update(
+            inputs_A=inputs_A, result_A=result_A, extras_A=extras_A,
+            inputs_B=inputs_B, result_B=result_B, extras_B=extras_B,
+            benchmarks=benchmarks, elapsed=time.perf_counter() - t0, pdf_bytes=None, ai_text=None)
+
+    if st.session_state.get("result_A") is not None:
+        st.divider()
+        if st.session_state.get("result_B") is not None:
+            render_compare(st.session_state.result_A, st.session_state.inputs_A, st.session_state.extras_A,
+                           st.session_state.result_B, st.session_state.inputs_B, st.session_state.extras_B,
+                           st.session_state.benchmarks, st.session_state.elapsed)
+        else:
+            render_single(st.session_state.result_A, st.session_state.inputs_A, st.session_state.extras_A,
+                          st.session_state.benchmarks, "A", elapsed=st.session_state.elapsed)
+
+
+if __name__ == "__main__":
+    main()

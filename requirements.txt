@@ -1,0 +1,15 @@
+# DLP Backtester & Planner — stack exacto (ver spec sección 4)
+# Compatible con Python 3.9 (dev local) y 3.11 (Streamlit Cloud, ver runtime.txt)
+
+streamlit>=1.40
+numpy>=1.24
+scipy>=1.11
+pandas>=2.0
+yfinance>=0.2.50
+curl_cffi>=0.7.0          # requerido por yfinance
+plotly>=5.18
+reportlab>=4.0            # PDF export (Fase 2)
+kaleido==0.2.1           # versión EXACTA — 1.x rompe en Streamlit Cloud
+Pillow>=10.0
+python-dotenv>=1.0
+anthropic>=0.40         # opcional — interpretación con IA (Fase 3)

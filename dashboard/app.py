@@ -388,13 +388,10 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
                 st.plotly_chart(charts.allocation_donut(items), use_container_width=True,
                                 config={"displayModeBar": False}, key=f"donut_res_{kp}")
             with kc:
-                k1, k2, k3 = st.columns(3)
-                with k1:
-                    components.kpi_tile("Si va mal", components.fmt_money(p5), S.RED, "1 de 20 (P5)")
-                with k2:
-                    components.kpi_tile("Lo más probable", components.fmt_money(p50), S.ORANGE, "el del medio")
-                with k3:
-                    components.kpi_tile("Si va bien", components.fmt_money(p95), S.GREEN, "1 de 20 (P95)")
+                # Apiladas (3 filas) para que el número entre en una sola línea
+                components.kpi_tile("Si va mal", components.fmt_money(p5), S.RED, "1 de 20 (P5)")
+                components.kpi_tile("Lo más probable", components.fmt_money(p50), S.ORANGE, "el del medio")
+                components.kpi_tile("Si va bien", components.fmt_money(p95), S.GREEN, "1 de 20 (P95)")
         with components.card(f"res-fan-{kp}"):
             components.card_head("◆", "Tus 10.000 futuros posibles", "pasa el cursor para leer cada año")
             st.plotly_chart(charts.fan_chart(result["percentiles"], result["months"], inputs["target"]),

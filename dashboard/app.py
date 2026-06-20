@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hmac
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -125,6 +126,29 @@ def _palette_for(lead: str) -> list[str]:
     return list(base)
 
 
+# ── Campo numérico con separador de miles (comas) y SIN decimales ────────────
+def _parse_num(txtk: str, rawk: str, min_v: float, max_v: float | None) -> None:
+    cleaned = re.sub(r"[^0-9]", "", st.session_state.get(txtk, "") or "")
+    val = float(int(cleaned)) if cleaned else 0.0
+    if max_v is not None:
+        val = min(val, float(max_v))
+    val = max(val, float(min_v))
+    st.session_state[rawk] = val
+    st.session_state[txtk] = f"{val:,.0f}"   # reformatea con comas (permitido en callback)
+
+
+def num_input(label: str, default: float, key: str, help: str | None = None,
+              min_value: float = 0, max_value: float | None = None) -> float:
+    """Casilla de número que se MUESTRA con comas de miles y sin decimales (ej: 10,000)."""
+    rawk, txtk = f"{key}__raw", f"{key}__txt"
+    if rawk not in st.session_state:
+        st.session_state[rawk] = float(default)
+        st.session_state[txtk] = f"{float(default):,.0f}"
+    st.text_input(label, key=txtk, help=help,
+                  on_change=_parse_num, args=(txtk, rawk, float(min_value), max_value))
+    return st.session_state[rawk]
+
+
 # ── Buscador + lista + dona (por portafolio) ─────────────────────────────────
 def render_portfolio_builder(pid: str, capital: float) -> tuple[list[str], list[float], float]:
     pf = st.session_state.portfolios[pid]
@@ -135,9 +159,11 @@ def render_portfolio_builder(pid: str, capital: float) -> tuple[list[str], list[
 
     pc1, pc2 = st.columns([3, 1])
     preset_opts = [("", "Cargar portafolio predefinido…")] + presets.list_presets()
-    chosen = pc1.selectbox("Atajo", options=[k for k, _ in preset_opts],
-                           format_func=lambda k: dict(preset_opts)[k],
-                           label_visibility="collapsed", key=f"preset_{pid}")
+    chosen = pc1.selectbox("Atajo: portafolio listo", options=[k for k, _ in preset_opts],
+                           format_func=lambda k: dict(preset_opts)[k], key=f"preset_{pid}",
+                           help="Carga un portafolio ya armado (S&P 500, 60/40, All-Weather) y "
+                                "luego ajústalo a gusto.")
+    pc2.markdown("<div style='height:30px'></div>", unsafe_allow_html=True)
     if pc2.button("Cargar", use_container_width=True, key=f"cargar_{pid}") and chosen:
         p = presets.get_preset(chosen)
         set_portfolio(pid, p["tickers"], p["weights"])
@@ -145,8 +171,10 @@ def render_portfolio_builder(pid: str, capital: float) -> tuple[list[str], list[
 
     left, right = st.columns([1.15, 1], gap="large")
     with left:
-        st.text_input("Buscar activo", key=f"q_{pid}", label_visibility="collapsed",
-                      placeholder="🔍  Busca por símbolo o nombre (ej: AAPL, Apple, SPY)")
+        st.text_input("Buscar activo (NYSE / NASDAQ)", key=f"q_{pid}",
+                      placeholder="🔍  Símbolo o nombre (ej: AAPL, Apple) y Enter",
+                      help="Escribe el símbolo o el nombre de una acción o ETF y presiona Enter "
+                           "para ver resultados y agregarlo a tu portafolio.")
         query = st.session_state.get(f"q_{pid}", "")
         if query:
             results = tdir.search_tickers(query, limit=6)
@@ -205,19 +233,19 @@ def render_inputs() -> dict | None:
     with components.card("plan"):
         components.card_head("◆", "Tu plan", "Aplica a ambos portafolios por igual")
         c1, c2 = st.columns(2)
-        capital = c1.number_input(
-            "Capital inicial (USD)", min_value=0.0, value=10_000.0, step=500.0, format="%.0f",
-            help="El dinero con el que empiezas a invertir hoy.")
-        aporte = c2.number_input(
-            "Aporte mensual (USD)", min_value=0.0, value=500.0, step=50.0, format="%.0f",
-            help="Cuánto sumas cada mes. El hábito de aportar es lo que más mueve el resultado.")
+        with c1:
+            capital = num_input("Capital inicial (USD)", 10_000, "capital", min_value=0,
+                                help="El dinero con el que empiezas a invertir hoy.")
+        with c2:
+            aporte = num_input("Aporte mensual (USD)", 500, "aporte", min_value=0,
+                               help="Cuánto sumas cada mes. El hábito de aportar es lo que más mueve el resultado.")
         c3, c4 = st.columns(2)
-        horizonte = c3.slider(
-            "Horizonte (años)", min_value=1, max_value=40, value=20,
-            help="Por cuántos años proyectas. Más tiempo = más interés compuesto y más incertidumbre.")
-        meta = c4.number_input(
-            "Meta final (USD, opcional)", min_value=0.0, value=0.0, step=10_000.0, format="%.0f",
-            help="Opcional: el patrimonio que te gustaría alcanzar. Verás la probabilidad de lograrlo.")
+        with c3:
+            horizonte = st.slider("Horizonte (años)", min_value=1, max_value=40, value=20,
+                                  help="Por cuántos años proyectas. Más tiempo = más interés compuesto y más incertidumbre.")
+        with c4:
+            meta = num_input("Meta final (USD, opcional)", 0, "meta", min_value=0,
+                             help="Opcional: el patrimonio que te gustaría alcanzar. Verás la probabilidad de lograrlo.")
 
     has_b = "B" in st.session_state.portfolios
     symB: list[str] | None = None
@@ -265,10 +293,10 @@ def render_inputs() -> dict | None:
                                    "sobre 20 años i.i.d. el efecto en el patrimonio final es modesto.")
         fc1, fc2 = st.columns(2)
         fees = fc1.number_input(
-            "Fees anuales (%)", min_value=0.0, max_value=5.0, value=0.0, step=0.1,
+            "Fees anuales (%)", min_value=0, max_value=5, value=0, step=1, format="%d",
             help="Costo anual del fondo o portafolio (comisiones + gastos). Reduce tu rendimiento.")
         tax = fc2.number_input(
-            "Impuesto anual s/ ganancias (%)", min_value=0.0, max_value=50.0, value=0.0, step=1.0,
+            "Impuesto anual s/ ganancias (%)", min_value=0, max_value=50, value=0, step=1, format="%d",
             help="Impuesto que pagas cada año sobre las ganancias. Aproxima una cuenta gravable.")
         compare = st.checkbox(
             "Comparar también contra benchmarks (S&P 500 puro y 60/40)",
@@ -277,8 +305,8 @@ def render_inputs() -> dict | None:
         retirement = st.checkbox(
             "Modo retiro (en vez de aportar, retiras)",
             help="Simula que ya no aportas sino que retiras dinero cada mes (modo jubilación).")
-        withdrawal = st.number_input(
-            "Retiro mensual (USD) — modo retiro", min_value=0.0, value=1_500.0, step=100.0, format="%.0f",
+        withdrawal = num_input(
+            "Retiro mensual (USD) — modo retiro", 1_500, "withdrawal", min_value=0,
             help="Cuánto retiras por mes cuando activas el modo retiro.")
         cs1, cs2 = st.columns(2)
         show_stress = cs1.checkbox(
@@ -399,8 +427,6 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
         with components.card(f"res-interp-{kp}"):
             components.card_head("◆", "¿Qué significa esto?")
             st.markdown(_md_money(interpret.interpret_locally(result, inputs, extras.get("stress"))))
-            if with_actions:
-                _render_ai_optional(result, inputs, extras.get("stress"))
 
     with tabs[1]:
         with components.card(f"dist-hist-{kp}"):
@@ -631,23 +657,6 @@ def render_compare(rA, iA, exA, rB, iB, exB, benchmarks, elapsed=None) -> None:
         dist = "t-Student" if iA["distribution"] == "t-student" else "Normal"
         st.caption(f"◇ 2 portafolios × {iA['n_simulations']:,} escenarios · {dist} · {elapsed:.1f}s · "
                    f"ventana {iA['historical_window_years']} años")
-
-
-def _render_ai_optional(result, inputs, stress_data) -> None:
-    with st.expander("Interpretación con IA (opcional — usa créditos de API)"):
-        if not interpret.claude_available():
-            st.caption("Configura ANTHROPIC_API_KEY en secrets para habilitarla. "
-                       "La interpretación de arriba ya es completa y gratis.")
-            return
-        st.warning("Esto llama a la API de Anthropic y **consume créditos**.")
-        if st.button("Generar interpretación con IA", key="aibtn"):
-            with st.spinner("Consultando a Claude…"):
-                try:
-                    st.session_state["ai_text"] = interpret.interpret_with_claude(result, inputs, stress_data)
-                except Exception as e:  # noqa: BLE001
-                    st.error(f"No se pudo generar: {e}")
-        if st.session_state.get("ai_text"):
-            st.markdown(st.session_state["ai_text"])
 
 
 def _render_pdf_button(result, inputs, benchmarks) -> None:

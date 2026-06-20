@@ -329,6 +329,16 @@ def inject_css() -> None:
             min-width:104px; text-align:right; }}
         .dlp-vsm .m-val.m-win {{ color:{TEXT_HI}; font-weight:800; }}
         .dlp-vsm .m-val.m-win::after {{ content:" ◆"; font-size:9px; }}
+
+        /* ── Botón de PDF: amarillo, grande y llamativo (genera + descarga) ── */
+        div.st-key-pdfgo button, div.st-key-pdfdl button {{
+            background: linear-gradient(180deg, #FFE680 0%, {GOLD} 45%, {ORANGE} 100%) !important;
+            color:#1A1206 !important; border:none !important; border-radius:14px !important;
+            font-family:{MONO} !important; font-weight:800 !important; text-transform:uppercase;
+            letter-spacing:.10em; font-size:16px !important; padding:18px 24px !important;
+            box-shadow:0 0 0 1px rgba(255,215,64,.65), 0 10px 36px rgba(255,184,77,.45) !important;
+            animation: dlpPulse 2.4s ease-in-out infinite; transition: transform .16s ease; }}
+        div.st-key-pdfgo button:hover, div.st-key-pdfdl button:hover {{ transform: translateY(-2px); }}
         </style>
         """,
         unsafe_allow_html=True,

@@ -1,12 +1,7 @@
 """Interpretación en lenguaje natural de la proyección.
 
-DOS modos:
-- `interpret_locally(...)`: intérprete por REGLAS, 100% local, **costo $0** (sin API). Es el
-  modo por defecto de la app.
-- `interpret_with_claude(...)`: OPCIONAL. Solo corre si el usuario lo activa explícitamente
-  Y hay ANTHROPIC_API_KEY. Por defecto NO se invoca → no gasta créditos.
-
-La interpretación nunca recomienda comprar/vender un activo: describe escenarios.
+`interpret_locally(...)`: intérprete por REGLAS, 100% local, sin ninguna API de IA.
+Nunca recomienda comprar/vender un activo: solo describe escenarios.
 """
 from __future__ import annotations
 
@@ -82,57 +77,3 @@ def interpret_locally(result: dict, inputs: dict, stress: dict | None = None) ->
         "_Recuerda: esto proyecta escenarios estadísticos basados en retornos históricos. "
         "No es predicción ni recomendación. Los retornos reales pueden diferir significativamente._")
     return "\n\n".join(lines)
-
-
-def claude_available() -> bool:
-    """True solo si hay ANTHROPIC_API_KEY (en st.secrets o env). No llama a la API."""
-    import os
-    try:
-        import streamlit as st
-        if "ANTHROPIC_API_KEY" in st.secrets:
-            return True
-    except Exception:
-        pass
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
-
-
-def interpret_with_claude(result: dict, inputs: dict, stress: dict | None = None,
-                          model: str = "claude-opus-4-8") -> str:
-    """OPCIONAL — interpretación con Claude. CUESTA CRÉDITOS DE API.
-
-    Solo se ejecuta si el llamador decide invocarla explícitamente y hay API key.
-    Nunca se llama por defecto en la app (ver core/interpret: el default es local).
-    """
-    import os
-
-    key = None
-    try:
-        import streamlit as st
-        key = st.secrets.get("ANTHROPIC_API_KEY")
-    except Exception:
-        key = None
-    key = key or os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        raise RuntimeError("No hay ANTHROPIC_API_KEY configurada — usa la interpretación local (gratis).")
-
-    import numpy as np
-    from anthropic import Anthropic
-
-    fv = result["final_values"]
-    p5, p50, p95 = (float(np.percentile(fv, q)) for q in (5, 50, 95))
-    facts = (
-        f"Horizonte {inputs['horizon_years']} años. Mediana ${p50:,.0f}, P5 ${p5:,.0f}, "
-        f"P95 ${p95:,.0f}. Prob. meta: {result.get('prob_target')}. "
-        f"Drawdown típico {result.get('max_drawdown_typical')}. "
-        f"Prob. ruina {result.get('probability_of_ruin')}.")
-    system = ("Eres un asistente de Diario Largo Plazo. Explica esta PROYECCIÓN PROBABILÍSTICA "
-              "en español neutro de Latinoamérica, claro y honesto. PROHIBIDO: prometer certeza, "
-              "garantizar, predecir, o recomendar comprar/vender un activo. Aclara siempre que el "
-              "futuro puede diferir.")
-    client = Anthropic(api_key=key)
-    msg = client.messages.create(
-        model=model, max_tokens=600,
-        system=system,
-        messages=[{"role": "user", "content": f"Interpreta esta proyección de portafolio:\n{facts}"}],
-    )
-    return "".join(block.text for block in msg.content if getattr(block, "type", "") == "text")

@@ -516,7 +516,7 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
 
     if with_actions:
         st.divider()
-        _render_pdf_button()
+        _render_pdf_button(result, inputs, benchmarks)
         if elapsed is not None:
             dist = "t-Student" if inputs["distribution"] == "t-student" else "Normal"
             st.caption(f"◇ {inputs['n_simulations']:,} escenarios · {dist} · {elapsed:.1f}s · "
@@ -652,21 +652,39 @@ def render_compare(rA, iA, exA, rB, iB, exB, benchmarks, elapsed=None) -> None:
             render_single(rB, iB, exB, None, "dB", with_hero=False, with_actions=False)
 
     st.divider()
-    _render_pdf_button()
+    _render_pdf_button(rA, iA, benchmarks)
     if elapsed is not None:
         dist = "t-Student" if iA["distribution"] == "t-student" else "Normal"
         st.caption(f"◇ 2 portafolios × {iA['n_simulations']:,} escenarios · {dist} · {elapsed:.1f}s · "
                    f"ventana {iA['historical_window_years']} años")
 
 
-def _render_pdf_button() -> None:
-    """Un solo botón: el PDF ya se generó durante el loader → este botón lo descarga."""
-    if st.session_state.get("pdf_bytes"):
-        st.download_button("▸  Descargar PDF (resumen + análisis)", data=st.session_state["pdf_bytes"],
+def _render_pdf_button(result, inputs, benchmarks) -> None:
+    """Un solo botón amarillo: al presionarlo muestra un spinner evidente, genera el PDF y lo descarga."""
+    from dashboard import pdf_report
+    slot = st.empty()
+    if st.session_state.get("_pdf_loading"):
+        slot.markdown(components.spinner_ring("Generando tu PDF…"), unsafe_allow_html=True)
+        try:
+            bench = benchmarks if benchmarks is not None else run_benchmarks(inputs)
+            st.session_state["pdf_bytes"] = pdf_report.generate_report(result, inputs, bench)
+        except Exception:
+            st.session_state["pdf_bytes"] = None
+        st.session_state["_pdf_loading"] = False
+        st.session_state["_pdf_just"] = True
+        st.rerun()
+    elif st.session_state.get("pdf_bytes"):
+        st.download_button("⬇  Descargar PDF (resumen + análisis)", data=st.session_state["pdf_bytes"],
                            file_name="proyeccion_portafolio.pdf", mime="application/pdf",
                            use_container_width=True, key="pdfdl")
+        if st.session_state.pop("_pdf_just", False):
+            import streamlit.components.v1 as stc
+            stc.html("<script>setTimeout(function(){var b=window.parent.document."
+                     "querySelector('.st-key-pdfdl button'); if(b){b.click();}}, 250);</script>", height=0)
     else:
-        st.caption("◇ El PDF no está disponible en este momento.")
+        if slot.button("▸  Generar y descargar PDF", use_container_width=True, key="pdfgo"):
+            st.session_state["_pdf_loading"] = True
+            st.rerun()
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -702,13 +720,6 @@ def main() -> None:
         benchmarks = run_benchmarks(inputs_A) if base["compare"] else None
         extras_A = _build_extras(inputs_A, result_A)
         extras_B = _build_extras(inputs_B, result_B) if inputs_B else None
-        # PDF: se genera acá (dentro del tiempo del loader) para que el botón sea uno solo
-        try:
-            from dashboard import pdf_report
-            bench_pdf = benchmarks if benchmarks is not None else run_benchmarks(inputs_A)
-            pdf_bytes = pdf_report.generate_report(result_A, inputs_A, bench_pdf)
-        except Exception:
-            pdf_bytes = None
         remaining = max(target - (time.perf_counter() - t0), 3.0)
         steps = max(int(remaining / 0.09), 24)
         for i in range(steps + 1):
@@ -718,8 +729,9 @@ def main() -> None:
         loader.empty()
         st.session_state.update(
             inputs_A=inputs_A, result_A=result_A, extras_A=extras_A,
-            inputs_B=inputs_B, result_B=result_B, extras_B=extras_B,
-            benchmarks=benchmarks, elapsed=time.perf_counter() - t0, pdf_bytes=pdf_bytes)
+            inputs_B=inputs_B, result_B=result_B, extras_B=extras_B, benchmarks=benchmarks,
+            elapsed=time.perf_counter() - t0,
+            pdf_bytes=None, _pdf_loading=False, _pdf_just=False)  # PDF se genera al click
 
     if st.session_state.get("result_A") is not None:
         st.divider()

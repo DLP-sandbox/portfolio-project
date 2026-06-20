@@ -99,9 +99,11 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None) -> 
     return fig
 
 
-def histogram_final(final_values: np.ndarray, bins: int = 60) -> go.Figure:
+def histogram_final(final_values: np.ndarray, bins: int = 60, plain_labels: bool = False) -> go.Figure:
     """Distribución del patrimonio final: barras coloreadas por percentil
-    (rojo abajo / naranja medio / verde arriba) + líneas P5 / mediana / P95."""
+    (rojo abajo / naranja medio / verde arriba) + líneas P5 / mediana / P95.
+
+    `plain_labels=True` usa etiquetas en lenguaje simple (para el PDF)."""
     p5, p50, p95 = np.percentile(final_values, [5, 50, 95])
     counts, edges = np.histogram(final_values, bins=bins)
     centers = (edges[:-1] + edges[1:]) / 2.0
@@ -115,7 +117,8 @@ def histogram_final(final_values: np.ndarray, bins: int = 60) -> go.Figure:
         hovertemplate="$%{x:,.0f}<br>%{y} escenarios<extra></extra>",
     ))
 
-    for value, color, label in [(p5, S.RED, "P5"), (p50, S.ORANGE, "Mediana"), (p95, S.GREEN, "P95")]:
+    lbl = (["Peor 5%", "Típico", "Mejor 5%"] if plain_labels else ["P5", "Mediana", "P95"])
+    for value, color, label in [(p5, S.RED, lbl[0]), (p50, S.ORANGE, lbl[1]), (p95, S.GREEN, lbl[2])]:
         fig.add_vline(x=value, line=dict(color=color, width=2, dash="dash"),
                       annotation_text=label, annotation_position="top",
                       annotation_font=dict(color=color, size=12))

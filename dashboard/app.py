@@ -516,7 +516,7 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
 
     if with_actions:
         st.divider()
-        _render_pdf_button(result, inputs, benchmarks)
+        _render_pdf_button()
         if elapsed is not None:
             dist = "t-Student" if inputs["distribution"] == "t-student" else "Normal"
             st.caption(f"◇ {inputs['n_simulations']:,} escenarios · {dist} · {elapsed:.1f}s · "
@@ -652,27 +652,21 @@ def render_compare(rA, iA, exA, rB, iB, exB, benchmarks, elapsed=None) -> None:
             render_single(rB, iB, exB, None, "dB", with_hero=False, with_actions=False)
 
     st.divider()
-    _render_pdf_button(rA, iA, benchmarks)
+    _render_pdf_button()
     if elapsed is not None:
         dist = "t-Student" if iA["distribution"] == "t-student" else "Normal"
         st.caption(f"◇ 2 portafolios × {iA['n_simulations']:,} escenarios · {dist} · {elapsed:.1f}s · "
                    f"ventana {iA['historical_window_years']} años")
 
 
-def _render_pdf_button(result, inputs, benchmarks) -> None:
-    from dashboard import pdf_report
-    if st.button("▸  Descargar PDF ejecutivo (3 páginas)", use_container_width=True, key="pdfbtn"):
-        with st.spinner("Generando PDF…"):
-            try:
-                bench = benchmarks or run_benchmarks(inputs)
-                st.session_state["pdf_bytes"] = pdf_report.generate_report(result, inputs, bench)
-            except Exception as e:  # noqa: BLE001
-                st.error(f"No se pudo generar el PDF: {e}")
-                st.session_state["pdf_bytes"] = None
+def _render_pdf_button() -> None:
+    """Un solo botón: el PDF ya se generó durante el loader → este botón lo descarga."""
     if st.session_state.get("pdf_bytes"):
-        st.download_button("⬇  Guardar PDF", data=st.session_state["pdf_bytes"],
+        st.download_button("▸  Descargar PDF (resumen + análisis)", data=st.session_state["pdf_bytes"],
                            file_name="proyeccion_portafolio.pdf", mime="application/pdf",
-                           use_container_width=True)
+                           use_container_width=True, key="pdfdl")
+    else:
+        st.caption("◇ El PDF no está disponible en este momento.")
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -708,6 +702,13 @@ def main() -> None:
         benchmarks = run_benchmarks(inputs_A) if base["compare"] else None
         extras_A = _build_extras(inputs_A, result_A)
         extras_B = _build_extras(inputs_B, result_B) if inputs_B else None
+        # PDF: se genera acá (dentro del tiempo del loader) para que el botón sea uno solo
+        try:
+            from dashboard import pdf_report
+            bench_pdf = benchmarks if benchmarks is not None else run_benchmarks(inputs_A)
+            pdf_bytes = pdf_report.generate_report(result_A, inputs_A, bench_pdf)
+        except Exception:
+            pdf_bytes = None
         remaining = max(target - (time.perf_counter() - t0), 3.0)
         steps = max(int(remaining / 0.09), 24)
         for i in range(steps + 1):
@@ -718,7 +719,7 @@ def main() -> None:
         st.session_state.update(
             inputs_A=inputs_A, result_A=result_A, extras_A=extras_A,
             inputs_B=inputs_B, result_B=result_B, extras_B=extras_B,
-            benchmarks=benchmarks, elapsed=time.perf_counter() - t0, pdf_bytes=None, ai_text=None)
+            benchmarks=benchmarks, elapsed=time.perf_counter() - t0, pdf_bytes=pdf_bytes)
 
     if st.session_state.get("result_A") is not None:
         st.divider()

@@ -125,7 +125,6 @@ def run_montecarlo(
     """Corre la proyección Montecarlo completa.
 
     Returns dict con:
-    - paths: array (n_sim, n_months+1) de valores del portafolio
     - final_values: array (n_sim,) de valores finales
     - percentiles: dict P5/P25/P50/P75/P95 → array por mes
     - prob_target: float 0-1 (None si no se pasó target)
@@ -170,17 +169,24 @@ def run_montecarlo(
         random_seed=random_seed,
     )
 
+    # Derivar todas las métricas ANTES de soltar la matriz grande de paths.
     final_values = paths[:, -1].copy()
     percentiles = st_metrics.percentiles_by_month(paths)
+    max_drawdown = st_metrics.max_drawdown_typical(paths)
+    prob_ruin = st_metrics.probability_of_ruin(paths)
+    expected_sharpe = st_metrics.expected_sharpe(mean_monthly, cov_monthly, weights_arr)
+    # `paths` (n_sim × meses, hasta ~40 MB) ya no se necesita: nada aguas abajo la
+    # usa, solo estas métricas. La liberamos aquí para NO retenerla en session_state
+    # (evita acumular varias matrices y quedarnos sin memoria en instancias chicas).
+    del paths
 
     return {
-        "paths": paths,
         "final_values": final_values,
         "percentiles": percentiles,
         "prob_target": st_metrics.prob_target(final_values, target),
-        "max_drawdown_typical": st_metrics.max_drawdown_typical(paths),
-        "probability_of_ruin": st_metrics.probability_of_ruin(paths),
-        "expected_sharpe": st_metrics.expected_sharpe(mean_monthly, cov_monthly, weights_arr),
+        "max_drawdown_typical": max_drawdown,
+        "probability_of_ruin": prob_ruin,
+        "expected_sharpe": expected_sharpe,
         "is_sample": is_sample,
         "months": n_months,
     }

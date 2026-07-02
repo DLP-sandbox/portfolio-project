@@ -6,10 +6,26 @@ import numpy as np
 # Niveles de percentil estándar para el fan chart
 PERCENTILE_LEVELS = (5, 25, 50, 75, 95)
 
+# Nº de simulaciones (filas) que se procesan por lote al recorrer la matriz de paths.
+# Acota los arrays temporales para no materializar copias del array completo a la vez
+# (evita picos de memoria con horizontes largos en instancias con poca RAM).
+_CHUNK_SIMS = 2000
+# Nº de meses (columnas) por lote al calcular percentiles (mismo objetivo).
+_CHUNK_MONTHS = 64
+
 
 def percentiles_by_month(paths: np.ndarray, levels: tuple[int, ...] = PERCENTILE_LEVELS) -> dict:
-    """Percentiles del patrimonio en cada mes → dict {"P5": array(n_months+1), ...}."""
-    values = np.percentile(paths, levels, axis=0)  # (len(levels), n_months+1)
+    """Percentiles del patrimonio en cada mes → dict {"P5": array(n_months+1), ...}.
+
+    Se calcula por lotes de columnas para no duplicar en memoria toda la matriz de
+    paths durante el particionado interno de ``np.percentile`` (resultado idéntico,
+    los percentiles de cada mes son independientes entre sí).
+    """
+    n_cols = paths.shape[1]
+    values = np.empty((len(levels), n_cols), dtype=np.float64)
+    for c in range(0, n_cols, _CHUNK_MONTHS):
+        values[:, c:c + _CHUNK_MONTHS] = np.percentile(
+            paths[:, c:c + _CHUNK_MONTHS], levels, axis=0)
     return {f"P{lvl}": values[i] for i, lvl in enumerate(levels)}
 
 
@@ -21,12 +37,21 @@ def prob_target(final_values: np.ndarray, target: float | None) -> float | None:
 
 
 def max_drawdown_typical(paths: np.ndarray) -> float:
-    """Mediana del máximo drawdown por path (caída pico-a-valle típica)."""
-    running_max = np.maximum.accumulate(paths, axis=1)
-    # Evitar división por cero (running_max > 0 siempre con capital inicial > 0)
-    safe_max = np.where(running_max > 0, running_max, np.nan)
-    drawdowns = (running_max - paths) / safe_max
-    max_dd_per_path = np.nanmax(drawdowns, axis=1)
+    """Mediana del máximo drawdown por path (caída pico-a-valle típica).
+
+    Procesa las simulaciones por lotes para no mantener a la vez varias copias del
+    array completo (running_max / safe_max / drawdowns). El resultado es idéntico:
+    el máximo drawdown de cada path es independiente del resto.
+    """
+    n = paths.shape[0]
+    max_dd_per_path = np.empty(n, dtype=np.float64)
+    for i in range(0, n, _CHUNK_SIMS):
+        block = paths[i:i + _CHUNK_SIMS]
+        running_max = np.maximum.accumulate(block, axis=1)
+        # Evitar división por cero (running_max > 0 siempre con capital inicial > 0)
+        safe_max = np.where(running_max > 0, running_max, np.nan)
+        drawdowns = (running_max - block) / safe_max
+        max_dd_per_path[i:i + _CHUNK_SIMS] = np.nanmax(drawdowns, axis=1)
     return float(np.median(max_dd_per_path))
 
 
@@ -34,8 +59,16 @@ def probability_of_ruin(paths: np.ndarray) -> float:
     """Fracción de paths que en algún momento tocan patrimonio ≤ 0.
 
     Con aportes positivos suele ser ~0; cobra sentido en modo retiro (Fase 3).
+    Se cuenta por lotes para no materializar una máscara booleana de toda la matriz.
     """
-    return float(np.mean(np.any(paths <= 0, axis=1)))
+    n = paths.shape[0]
+    if n == 0:
+        return 0.0
+    ruined = 0
+    for i in range(0, n, _CHUNK_SIMS):
+        block = paths[i:i + _CHUNK_SIMS]
+        ruined += int(np.count_nonzero(np.any(block <= 0, axis=1)))
+    return ruined / n
 
 
 def expected_sharpe(mean_monthly: np.ndarray, cov_monthly: np.ndarray,

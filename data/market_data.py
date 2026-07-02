@@ -17,7 +17,9 @@ import pandas as pd
 try:
     import streamlit as st
 
-    _cache = st.cache_data(ttl=3600, show_spinner=False)
+    # max_entries acota la caché: evita que el historial de precios de muchas
+    # combinaciones de tickers se acumule sin límite en instancias con poca RAM.
+    _cache = st.cache_data(ttl=3600, show_spinner=False, max_entries=64)
 except Exception:  # pragma: no cover - permite usar el módulo fuera de Streamlit
     def _cache(func):
         return func

@@ -702,6 +702,7 @@ def main() -> None:
     st.set_page_config(page_title="Proyección de Portafolio", page_icon="◈",
                        layout="centered", initial_sidebar_state="collapsed")
     inject_css()
+    S.disable_context_menu()  # bloquea el menú de clic derecho en toda la app
     _require_password()
     components.page_hero()
 

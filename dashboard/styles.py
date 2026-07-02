@@ -37,6 +37,38 @@ def color_for_percentile(kind: str) -> str:
     return {"median": ORANGE, "optimistic": GREEN, "pessimistic": RED}[kind]
 
 
+def disable_context_menu() -> None:
+    """Desactiva el menú contextual (clic derecho) en toda la app.
+
+    Streamlit NO ejecuta <script> dentro de st.markdown, así que usamos un componente
+    HTML (iframe height=0, invisible) y desde ahí enganchamos el listener en el
+    documento padre —la app real— vía window.parent.document (mismo origen). El guard
+    __dlpNoCtx evita apilar listeners en cada rerun. Es puramente disuasorio para el
+    usuario casual (abrir en pestaña nueva, "ver código fuente", etc.); no cambia nada
+    del contenido ni de la lógica. Llamar una vez al inicio de app.py.
+    """
+    import streamlit.components.v1 as _stc
+
+    _stc.html(
+        """
+        <script>
+        (function () {
+          var block = function (e) { e.preventDefault(); return false; };
+          try {
+            var pdoc = window.parent.document;
+            if (!window.parent.__dlpNoCtx) {
+              window.parent.__dlpNoCtx = true;
+              pdoc.addEventListener('contextmenu', block, true);
+            }
+          } catch (err) { /* cross-origin improbable: seguimos con el iframe local */ }
+          document.addEventListener('contextmenu', block, true);
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+
 def inject_css() -> None:
     """Inyecta el CSS global premium. Llamar una vez al inicio de app.py."""
     st.markdown(

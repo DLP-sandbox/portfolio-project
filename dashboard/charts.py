@@ -11,6 +11,29 @@ import plotly.graph_objects as go
 from dashboard import styles as S
 
 
+def _apply_growth_scale(fig: go.Figure, series: list, y_title: str = "Patrimonio (USD)") -> None:
+    """Escala el eje Y a logarítmica cuando hay crecimiento compuesto fuerte y todos
+    los valores son positivos.
+
+    Motivo: en escala lineal el interés compuesto se ve plano al principio y se dispara
+    solo al final, y no deja leer el rendimiento a lo largo del tiempo. En escala log una
+    tasa de crecimiento constante es una recta, así la trayectoria y las diferencias entre
+    portafolios se ven en TODOS los años. NO cambia ningún dato: solo la escala visual del
+    eje (el hover sigue mostrando los montos exactos).
+
+    Si algún valor es ≤0 (p. ej. ruina en modo retiro) o el rango es chico, se deja lineal.
+    """
+    arrs = [np.asarray(a, dtype=float).ravel() for a in series if a is not None]
+    flat = np.concatenate(arrs) if arrs else np.array([])
+    flat = flat[np.isfinite(flat)]
+    if flat.size and flat.min() > 0 and (flat.max() / flat.min()) >= 4.0:
+        # 'D2' → marcas 1-2-5 por década (10k, 20k, 50k, 100k…); '~s' → sufijos $10k / $1M
+        fig.update_yaxes(type="log", tickprefix="$", tickformat="~s", dtick="D2",
+                         title=f"{y_title} · escala log")
+    else:
+        fig.update_yaxes(tickprefix="$", tickformat=",.0f", title=y_title)
+
+
 def _apply_dlp_layout(fig: go.Figure, x_title: str, y_title: str, height: int = 460) -> go.Figure:
     """Layout dark común a todos los charts DLP."""
     fig.update_layout(
@@ -90,7 +113,8 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None) -> 
                       annotation_font=dict(color=S.GREEN, size=12))
 
     _apply_dlp_layout(fig, "Años", "Patrimonio (USD)", height=340)
-    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    # Escala Y log si hay crecimiento compuesto fuerte (lee mejor todos los años, no solo el final)
+    _apply_growth_scale(fig, [percentiles["P5"], percentiles["P95"]])
     # Línea guía vertical + año formateado para leer el abanico con el cursor
     fig.update_xaxes(hoverformat=".1f", showspikes=True, spikemode="across",
                      spikethickness=1, spikedash="dot", spikecolor="rgba(255,184,77,0.55)")
@@ -201,7 +225,13 @@ def comparison_fan_chart(scenarios: list[dict], n_months: int, target: float | N
                       annotation_font=dict(color=S.GREEN, size=12))
 
     _apply_dlp_layout(fig, "Años", "Patrimonio (USD)", height=340)
-    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    # Escala Y log si hay crecimiento compuesto fuerte: hace visible la trayectoria y las
+    # diferencias entre portafolios en TODOS los años, no solo en el tramo final.
+    bounds: list = []
+    for sc in scenarios[:4]:
+        bounds.append(sc["percentiles"]["P5"])
+        bounds.append(sc["percentiles"]["P95"])
+    _apply_growth_scale(fig, bounds)
     fig.update_layout(showlegend=True, legend=dict(
         orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
         bgcolor="rgba(0,0,0,0)", font=dict(color=S.TEXT_MD, size=12)))

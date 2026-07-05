@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 import numpy as np  # noqa: E402
 import streamlit as st  # noqa: E402
 
-from core import interpret, presets, sequence, stress  # noqa: E402
+from core import interpret, portfolio_import, presets, sequence, stress  # noqa: E402
 from core.montecarlo import run_montecarlo  # noqa: E402
 from dashboard import charts, components  # noqa: E402
 from dashboard import styles as S  # noqa: E402
@@ -223,6 +223,65 @@ def render_portfolio_builder(pid: str, capital: float) -> tuple[list[str], list[
     return symbols, weights, sum(max(w, 0) for w in weights)
 
 
+# ── Importar portafolios candidatos desde CSV ────────────────────────────────
+def _load_candidate_into(pid: str, cand: dict) -> None:
+    """Carga un candidato importado en el slot A o B usando el modelo existente."""
+    symbols = [it["symbol"] for it in cand["items"]]
+    weights = [float(it["weight"]) for it in cand["items"]]
+    set_portfolio(pid, symbols, weights)
+
+
+def render_candidate_importer(capital: float, aporte: float, horizonte: int, meta: float) -> None:
+    """Expander para importar portafolios candidatos desde un CSV (formato DLP).
+
+    Reusa el flujo ya probado: cada candidato se puede cargar en A o en B con un clic,
+    y hay un botón para comparar TODOS los candidatos de una vez (ranking + overlay).
+    Es aditivo: no toca la lógica de simulación ni la vista A/B.
+    """
+    with st.expander("⬆  Importar portafolios candidatos (CSV)"):
+        st.caption("Sube el CSV de candidatos (columnas: Portafolio, Ticker, Nombre, Clase, Peso%). "
+                   "Cargamos cada candidato listo para simular — sin afectar nada de lo demás.")
+        up = st.file_uploader("archivo CSV", type=["csv"], key="cand_csv",
+                              label_visibility="collapsed")
+        if up is not None:
+            try:
+                raw = up.getvalue().decode("utf-8-sig", errors="replace")
+                st.session_state["cand_ports"] = portfolio_import.parse_portfolios_csv(raw)
+            except Exception as e:
+                st.session_state.pop("cand_ports", None)
+                st.error(f"No se pudo leer el CSV: {e}")
+
+        cands = st.session_state.get("cand_ports") or []
+        if not cands:
+            return
+        st.markdown(f"<div class='dlp-side-title'>{len(cands)} candidatos importados</div>",
+                    unsafe_allow_html=True)
+        for idx, cand in enumerate(cands):
+            compo = " · ".join(f"{round(it['weight'])}% {it['symbol']}" for it in cand["items"][:4])
+            more = " …" if len(cand["items"]) > 4 else ""
+            cc1, cc2, cc3 = st.columns([3.2, 1, 1])
+            cc1.markdown(
+                f"<div style='padding-top:6px'><b style='color:{S.TEXT_HI};font-size:14px'>{cand['name']}</b><br>"
+                f"<span style='color:{S.TEXT_LO};font-size:11px'>{len(cand['items'])} activos · {compo}{more}</span></div>",
+                unsafe_allow_html=True)
+            if cc2.button("→ A", key=f"cand_a_{idx}", use_container_width=True):
+                _load_candidate_into("A", cand)
+                st.rerun()
+            if cc3.button("→ B", key=f"cand_b_{idx}", use_container_width=True):
+                st.session_state.portfolios.setdefault("B", [])
+                _load_candidate_into("B", cand)
+                st.rerun()
+        if len(cands) >= 2 and st.button(
+                f"◈  Comparar los {len(cands)} candidatos — 10.000 escenarios",
+                key="cand_compare_btn", use_container_width=True, type="primary"):
+            st.session_state["_run_cands"] = {
+                "initial_capital": capital, "monthly_contribution": aporte,
+                "horizon_years": int(horizonte), "target": (meta if meta > 0 else None),
+                "candidates": cands}
+            st.session_state["result_A"] = None   # oculta la vista A/B para no encimar
+            st.session_state["result_B"] = None
+
+
 # ── Inputs (plan compartido + A/B + avanzadas) ───────────────────────────────
 def render_inputs() -> dict | None:
     _init_portfolios()
@@ -271,6 +330,8 @@ def render_inputs() -> dict | None:
             if st.button("＋  Agregar Portafolio B para comparar", use_container_width=True):
                 st.session_state.portfolios["B"] = [dict(x) for x in DEFAULT_B]
                 st.rerun()
+
+    render_candidate_importer(capital, aporte, int(horizonte), meta)
 
     a_ready = bool(symA) and twA > 0
     b_ready = (not has_b) or (bool(symB) and twB > 0)
@@ -687,6 +748,138 @@ def _render_pdf_button(result, inputs, benchmarks) -> None:
             st.rerun()
 
 
+# ── Comparación de candidatos importados (N portafolios) ─────────────────────
+def _compute_candidates(spec: dict) -> None:
+    """Corre la simulación de cada candidato importado y guarda resultados en sesión.
+
+    Mismo seed para todos → comparación justa. Cada compute() libera su matriz de paths
+    (fix de memoria previo), así que correr varios en secuencia es seguro.
+    """
+    seed = random.randrange(1_000_000_000)
+    cands = spec["candidates"][:4]   # el chart comparativo soporta hasta 4
+    results: list[dict] = []
+    with st.spinner(f"Corriendo 10.000 escenarios para {len(cands)} candidatos…"):
+        for cand in cands:
+            syms = [it["symbol"] for it in cand["items"]]
+            wts = [max(float(it["weight"]), 0.0) for it in cand["items"]]
+            tot = sum(wts) or 1.0
+            inputs = {
+                "initial_capital": spec["initial_capital"],
+                "monthly_contribution": spec["monthly_contribution"],
+                "horizon_years": spec["horizon_years"], "target": spec["target"],
+                "historical_window_years": 10, "n_simulations": 10_000,
+                "distribution": "normal", "annual_fees_pct": 0.0,
+                "annual_tax_on_gains_pct": 0.0, "random_seed": seed,
+                "tickers": syms, "weights": [w / tot for w in wts],
+            }
+            try:
+                res = compute(inputs)
+            except Exception:
+                res = None
+            results.append({"name": cand["name"], "inputs": inputs, "result": res})
+    st.session_state["cand_results"] = results
+    st.session_state["cand_plan"] = {"horizon_years": spec["horizon_years"], "target": spec["target"]}
+
+
+def _cand_metric_rows(results: list[dict], target: float | None) -> list[dict]:
+    rows = []
+    for r in results:
+        res = r["result"]
+        fv = res["final_values"]
+        rows.append({
+            "name": r["name"], "result": res,
+            "p50": float(np.percentile(fv, 50)), "p5": float(np.percentile(fv, 5)),
+            "p95": float(np.percentile(fv, 95)), "dd": res["max_drawdown_typical"],
+            "sharpe": res["expected_sharpe"],
+            "prob": (res["prob_target"] or 0.0) if target else None,
+        })
+    return rows
+
+
+def _candidates_table(rows: list[dict], target: float | None, best_name: str) -> str:
+    """Tabla-ranking reusando el estilo .dlp-cmp; ◆ marca el mejor en cada métrica."""
+    best_p50 = max(r["p50"] for r in rows)
+    best_dd = min(r["dd"] for r in rows)
+    best_sh = max(r["sharpe"] for r in rows)
+    best_pr = max((r["prob"] or 0) for r in rows) if target else 0
+    cols = ["Candidato", "Mediana", "Si va mal", "Si va bien", "Caída típica", "Eficiencia"]
+    if target:
+        cols.append("Prob. meta")
+    head = "".join(f"<th>{c}</th>" for c in cols)
+    body = ""
+    for r in sorted(rows, key=lambda x: -x["p50"]):
+        is_best = r["name"] == best_name
+        nmcol = S.ORANGE if is_best else S.TEXT_MD
+        cells = [
+            f"<td class='metric'><b style='color:{nmcol}'>{r['name']}</b></td>",
+            f"<td class='{'win' if r['p50'] == best_p50 else ''}'>{components.fmt_money(r['p50'])}</td>",
+            f"<td>{components.fmt_money(r['p5'])}</td>",
+            f"<td>{components.fmt_money(r['p95'])}</td>",
+            f"<td class='{'win' if r['dd'] == best_dd else ''}'>{components.fmt_pct(r['dd'])}</td>",
+            f"<td class='{'win' if r['sharpe'] == best_sh else ''}'>{r['sharpe']:.2f}</td>",
+        ]
+        if target:
+            cells.append(f"<td class='{'win' if (r['prob'] or 0) == best_pr else ''}'>{(r['prob'] or 0) * 100:.0f}%</td>")
+        body += f"<tr>{''.join(cells)}</tr>"
+    return f"<table class='dlp-cmp'><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+def render_candidate_results() -> None:
+    """Muestra el ranking + veredicto + overlay de los candidatos importados."""
+    all_results = st.session_state.get("cand_results") or []
+    results = [r for r in all_results if r["result"] is not None]
+    failed = [r["name"] for r in all_results if r["result"] is None]
+    if not results:
+        st.divider()
+        st.error("No se pudo simular ningún candidato. Revisa que los tickers del CSV existan en el mercado.")
+        return
+
+    plan = st.session_state.get("cand_plan", {})
+    target = plan.get("target")
+    years = plan.get("horizon_years", results[0]["result"]["months"] // 12)
+
+    st.divider()
+    components.disclaimer_banner()
+    if failed:
+        st.warning("No se pudieron simular (tickers no encontrados): " + ", ".join(failed))
+
+    rows = _cand_metric_rows(results, target)
+    best = max(rows, key=lambda x: x["p50"])
+    safest = min(rows, key=lambda x: x["dd"])
+
+    with components.card("cand-verdict"):
+        components.card_head("◆", "El mejor candidato", "según la proyección")
+        v = (f"El candidato {_b(best['name'], S.ORANGE)} proyecta la mayor mediana a "
+             f"{_b(str(years) + ' años')}: {_b(components.fmt_money(best['p50']), S.ORANGE)}. ")
+        if safest["name"] == best["name"]:
+            v += ("Y además es el más estable (menor caída típica): destaca tanto en crecimiento "
+                  "como en estabilidad — aunque no es garantía.")
+        else:
+            v += (f"Pero {_b(safest['name'], S.BLUE)} es el más estable (caída típica "
+                  f"{components.fmt_pct(safest['dd'])} vs {components.fmt_pct(best['dd'])}): hay un "
+                  f"trade-off entre crecimiento y estabilidad según tu tolerancia al riesgo.")
+        if target:
+            bestprob = max(rows, key=lambda x: (x["prob"] or 0))
+            v += (f" Para tu meta, el de mayor probabilidad de alcanzarla es "
+                  f"{_b(bestprob['name'], S.GOLD)} ({(bestprob['prob'] or 0) * 100:.0f}%).")
+        components.verdict_card(S.GOLD, _md_money(v))
+
+    with components.card("cand-board"):
+        components.card_head("◆", "Ranking de candidatos", "◆ = mejor en cada métrica")
+        st.markdown(_candidates_table(rows, target, best["name"]), unsafe_allow_html=True)
+        st.caption("Ordenados por mediana proyectada. 'Caída típica' y 'Eficiencia (Sharpe)' miden "
+                   "el riesgo: menos caída y más Sharpe es mejor.")
+
+    with components.card("cand-fan"):
+        components.card_head("◆", "Proyección comparada", "mediana + rango P5–P95 de cada candidato")
+        scen = [{"label": r["name"], "percentiles": r["result"]["percentiles"]} for r in rows]
+        st.plotly_chart(charts.comparison_fan_chart(scen, results[0]["result"]["months"], target),
+                        use_container_width=True, config={"displayModeBar": False}, key="cand_fan_chart")
+
+    st.caption("◇ Consejo: usa los botones → A / → B del importador para analizar un candidato en "
+               "profundidad (histograma, stress test, PDF, etc.).")
+
+
 # ── App ──────────────────────────────────────────────────────────────────────
 def _loader_msg(pct: int) -> str:
     if pct < 30:
@@ -707,7 +900,14 @@ def main() -> None:
     components.page_hero()
 
     spec = render_inputs()
+
+    # Comparación de candidatos importados (flujo independiente del A/B)
+    run_cands = st.session_state.pop("_run_cands", None)
+    if run_cands is not None:
+        _compute_candidates(run_cands)
+
     if spec is not None:
+        st.session_state["cand_results"] = None   # una corrida A/B oculta la de candidatos
         base = spec["base"]
         inputs_A = dict(base, **spec["A"])
         inputs_B = dict(base, **spec["B"]) if spec["B"] else None
@@ -743,6 +943,9 @@ def main() -> None:
         else:
             render_single(st.session_state.result_A, st.session_state.inputs_A, st.session_state.extras_A,
                           st.session_state.benchmarks, "A", elapsed=st.session_state.elapsed)
+
+    if st.session_state.get("cand_results"):
+        render_candidate_results()
 
 
 if __name__ == "__main__":

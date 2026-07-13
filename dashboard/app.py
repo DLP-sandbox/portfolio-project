@@ -861,7 +861,10 @@ def _compute_candidates(spec: dict) -> None:
                 res = compute(inputs)
             except Exception:
                 res = None
-            results.append({"name": cand["name"], "inputs": inputs, "result": res})
+            # Guardamos la composición (activos + pesos + nombres) para mostrarla luego.
+            # Es una lista chica de strings/números: no impacta la memoria.
+            results.append({"name": cand["name"], "inputs": inputs, "result": res,
+                            "items": [dict(it) for it in cand["items"]]})
     st.session_state["cand_results"] = results
     st.session_state["cand_plan"] = {"horizon_years": spec["horizon_years"], "target": spec["target"]}
 
@@ -871,8 +874,14 @@ def _cand_metric_rows(results: list[dict], target: float | None) -> list[dict]:
     for r in results:
         res = r["result"]
         fv = res["final_values"]
+        # Composición: usa los items guardados; si faltaran, se reconstruye desde inputs.
+        items = r.get("items")
+        if not items:
+            inp = r.get("inputs", {})
+            items = [{"symbol": t, "name": tdir.get_name(t), "weight": w * 100.0}
+                     for t, w in zip(inp.get("tickers", []), inp.get("weights", []))]
         rows.append({
-            "name": r["name"], "result": res,
+            "name": r["name"], "result": res, "items": items,
             "p50": float(np.percentile(fv, 50)), "p5": float(np.percentile(fv, 5)),
             "p95": float(np.percentile(fv, 95)), "dd": res["max_drawdown_typical"],
             "sharpe": res["expected_sharpe"],
@@ -907,6 +916,25 @@ def _candidates_table(rows: list[dict], target: float | None, best_name: str) ->
             cells.append(f"<td class='{'win' if (r['prob'] or 0) == best_pr else ''}'>{(r['prob'] or 0) * 100:.0f}%</td>")
         body += f"<tr>{''.join(cells)}</tr>"
     return f"<table class='dlp-cmp'><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+def _candidate_composition_html(items: list[dict]) -> str:
+    """Lista de activos de un candidato: punto de color (igual que la dona) + símbolo +
+    nombre + peso %. Los pesos se normalizan a 100% para que sumen exacto."""
+    total = sum(max(float(it.get("weight", 0)), 0.0) for it in items) or 1.0
+    html = ""
+    for i, it in enumerate(items):
+        color = charts.DONUT_COLORS[i % len(charts.DONUT_COLORS)]
+        pct = max(float(it.get("weight", 0)), 0.0) / total * 100.0
+        name = (it.get("name") or "")[:26]
+        html += (
+            f"<div style='display:flex;align-items:center;gap:9px;padding:5px 0;"
+            f"border-bottom:1px solid {S.BORDER};'>"
+            f"<span style='color:{color};font-size:13px;'>●</span>"
+            f"<b style='color:{S.TEXT_HI};font-family:{S.MONO};font-size:13px;min-width:56px;'>{it['symbol']}</b>"
+            f"<span style='color:{S.TEXT_LO};font-size:12px;flex:1;'>{name}</span>"
+            f"<b style='color:{S.TEXT_MD};font-family:{S.MONO};font-size:13.5px;'>{pct:.0f}%</b></div>")
+    return html
 
 
 def render_candidate_results() -> None:
@@ -960,6 +988,27 @@ def render_candidate_results() -> None:
         scen = [{"label": r["name"], "percentiles": r["result"]["percentiles"]} for r in rows]
         st.plotly_chart(charts.comparison_fan_chart(scen, results[0]["result"]["months"], target),
                         use_container_width=True, config={"displayModeBar": False}, key="cand_fan_chart")
+
+    with components.card("cand-compo"):
+        components.card_head("◆", "Composición de cada candidato", "qué activos tiene y con qué peso")
+        for idx, r in enumerate(sorted(rows, key=lambda x: -x["p50"])):
+            items = r["items"]
+            is_best = r["name"] == best["name"]
+            nmcol = S.ORANGE if is_best else S.TEXT_HI
+            tag = " · el de mayor mediana" if is_best else ""
+            st.markdown(
+                f"<div style='margin:6px 0 4px;'><b style='color:{nmcol};font-family:{S.MONO};"
+                f"font-size:15px;letter-spacing:.04em;'>{r['name']}</b>"
+                f"<span style='color:{S.TEXT_LO};font-size:12px;'> · {len(items)} activos{tag}</span></div>",
+                unsafe_allow_html=True)
+            dc, lc = st.columns([1, 1.3], gap="large")
+            with dc:
+                st.plotly_chart(charts.allocation_donut(items), use_container_width=True,
+                                config={"displayModeBar": False}, key=f"cand_compo_donut_{idx}")
+            with lc:
+                st.markdown(_candidate_composition_html(items), unsafe_allow_html=True)
+            if idx < len(rows) - 1:
+                st.divider()
 
     st.caption("◇ Consejo: usa los botones → A / → B del importador para analizar un candidato en "
                "profundidad (histograma, stress test, PDF, etc.).")

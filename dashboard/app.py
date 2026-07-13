@@ -6,6 +6,7 @@ probabilística, no predicción. Sin barra lateral ni persistencia (no guarda na
 from __future__ import annotations
 
 import hmac
+import os
 import random
 import re
 import sys
@@ -35,6 +36,12 @@ DEFAULT_A = [
 DEFAULT_B = [{"symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "weight": 100.0}]
 MAX_ASSETS = 8
 BENCHMARK_SPECS = [("S&P 500 puro", ["SPY"], [100.0]), ("60/40", ["SPY", "BND"], [60.0, 40.0])]
+
+# Acceso Fase 2: el link con ?fase2=1 (o ?f2) muestra una portada con clave. El link
+# normal (sin el parámetro) entra directo, sin cambios. La clave se puede configurar con
+# el secret/env FASE2_PASSWORD; si no está, se usa el default de abajo (cambiable).
+FASE2_QUERY_KEYS = ("fase2", "f2")
+DEFAULT_FASE2_PASSWORD = "bienvenidofase2"
 PCOLOR = {"A": S.ORANGE, "B": S.BLUE}
 PLABEL = {"A": "Portafolio A", "B": "Portafolio B"}
 
@@ -57,6 +64,84 @@ def _require_password() -> None:
             st.rerun()
         else:
             st.error("Contraseña incorrecta")
+    st.stop()
+
+
+# ── Acceso Fase 2 (link diferenciado con clave) ──────────────────────────────
+def _fase2_mode() -> bool:
+    """True si la URL trae el parámetro de Fase 2 (ej: ?fase2=1 o ?f2).
+
+    El link normal (sin el parámetro) NO se ve afectado: entra directo como hoy.
+    """
+    try:
+        qp = st.query_params
+    except Exception:
+        return False
+    return any(k in qp for k in FASE2_QUERY_KEYS)
+
+
+def _fase2_password() -> str:
+    """Clave de Fase 2: secret/env FASE2_PASSWORD si está definida; si no, el default."""
+    val = None
+    try:
+        val = st.secrets.get("FASE2_PASSWORD")
+    except Exception:
+        val = None
+    if not val:
+        val = os.environ.get("FASE2_PASSWORD")
+    return val or DEFAULT_FASE2_PASSWORD
+
+
+def _require_fase2_access() -> None:
+    """Portada 'Recurso exclusivo — Fase 2' con clave, SOLO en el link diferenciado.
+
+    - Link normal (sin ?fase2): esta función no hace nada → acceso directo como siempre.
+    - Link Fase 2 (?fase2=1): muestra una portada estética que pide la clave y no deja
+      pasar hasta que sea correcta (st.stop()). Validación en tiempo constante
+      (hmac.compare_digest) y desbloqueo por sesión (_fase2_ok).
+    """
+    if not _fase2_mode() or st.session_state.get("_fase2_ok"):
+        return
+    expected = _fase2_password()
+
+    st.markdown(
+        f"""
+        <div class="dlp-page-hero" style="padding-top:26px;">
+          <div class="glow"></div>
+          <div class="diamond" style="font-size:30px;">🔒</div>
+          <div class="title">Recurso exclusivo<br>Fase 2</div>
+          <div class="sub">Acceso restringido · ingresa tu clave</div>
+          <div class="dlp-rule"></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _, mid, _ = st.columns([1, 2.2, 1])
+    with mid:
+        st.markdown(
+            f"<div class='dlp-card dlp-card-left' style='border-left-color:{S.GOLD};text-align:center;'>"
+            f"<div style='color:{S.TEXT_MD};font-size:15px;line-height:1.6;'>"
+            f"Introduce la clave de acceso a la fase 2"
+            f"</div></div>",
+            unsafe_allow_html=True,
+        )
+        with st.form("fase2_auth", clear_on_submit=False):
+            pwd = st.text_input("clave", label_visibility="collapsed",
+                                placeholder="Clave de acceso Fase 2")
+            ok = st.form_submit_button("🔓  Desbloquear Fase 2", use_container_width=True,
+                                       type="primary")
+        if ok:
+            if expected and hmac.compare_digest((pwd or "").encode(), expected.encode()):
+                st.session_state["_fase2_ok"] = True
+                st.rerun()
+            else:
+                st.error("Clave incorrecta. Verifica e inténtalo de nuevo.")
+        st.markdown(
+            f"<div style='text-align:center;color:{S.TEXT_DIM};font-size:12px;margin-top:12px;"
+            f"font-family:{S.MONO};letter-spacing:.05em;line-height:1.6;'>◇ Si aún no tienes la clave, "
+            f"tu asesor DLP te la entregará cuando comience tu Fase 2.</div>",
+            unsafe_allow_html=True,
+        )
     st.stop()
 
 
@@ -896,6 +981,7 @@ def main() -> None:
                        layout="centered", initial_sidebar_state="collapsed")
     inject_css()
     S.disable_context_menu()  # bloquea el menú de clic derecho en toda la app
+    _require_fase2_access()   # portada con clave SOLO en el link ?fase2 (el normal no cambia)
     _require_password()
     components.page_hero()
 

@@ -97,51 +97,59 @@ def _require_fase2_access() -> None:
 
     - Link normal (sin ?fase2): esta función no hace nada → acceso directo como siempre.
     - Link Fase 2 (?fase2=1): muestra una portada estética que pide la clave y no deja
-      pasar hasta que sea correcta (st.stop()). Validación en tiempo constante
-      (hmac.compare_digest) y desbloqueo por sesión (_fase2_ok).
+      pasar hasta que sea correcta. Validación en tiempo constante (hmac.compare_digest)
+      y desbloqueo por sesión (_fase2_ok).
+
+    Rendimiento: la portada se dibuja dentro de un st.empty(); si la clave es correcta,
+    lo vaciamos y hacemos `return` para que la app se renderice en EL MISMO run. Así se
+    evita el st.rerun() extra (que hacía cargar dos veces) y el menú aparece de una.
     """
     if not _fase2_mode() or st.session_state.get("_fase2_ok"):
         return
     expected = _fase2_password()
 
-    st.markdown(
-        f"""
-        <div class="dlp-page-hero" style="padding-top:26px;">
-          <div class="glow"></div>
-          <div class="diamond" style="font-size:30px;">🔒</div>
-          <div class="title">Recurso exclusivo<br>Fase 2</div>
-          <div class="sub">Acceso restringido · ingresa tu clave</div>
-          <div class="dlp-rule"></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    _, mid, _ = st.columns([1, 2.2, 1])
-    with mid:
+    gate = st.empty()   # contenedor de la portada: lo vaciamos si la clave es correcta
+    with gate.container():
         st.markdown(
-            f"<div class='dlp-card dlp-card-left' style='border-left-color:{S.GOLD};text-align:center;'>"
-            f"<div style='color:{S.TEXT_MD};font-size:15px;line-height:1.6;'>"
-            f"Introduce la clave de acceso a la fase 2"
-            f"</div></div>",
+            f"""
+            <div class="dlp-page-hero" style="padding-top:26px;">
+              <div class="glow"></div>
+              <div class="diamond" style="font-size:30px;">🔒</div>
+              <div class="title">Recurso exclusivo<br>Fase 2</div>
+              <div class="sub">Acceso restringido · ingresa tu clave</div>
+              <div class="dlp-rule"></div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
-        with st.form("fase2_auth", clear_on_submit=False):
-            pwd = st.text_input("clave", label_visibility="collapsed",
-                                placeholder="Clave de acceso Fase 2")
-            ok = st.form_submit_button("🔓  Desbloquear Fase 2", use_container_width=True,
-                                       type="primary")
-        if ok:
-            if expected and hmac.compare_digest((pwd or "").encode(), expected.encode()):
-                st.session_state["_fase2_ok"] = True
-                st.rerun()
-            else:
+        _, mid, _ = st.columns([1, 2.2, 1])
+        with mid:
+            st.markdown(
+                f"<div class='dlp-card dlp-card-left' style='border-left-color:{S.GOLD};text-align:center;'>"
+                f"<div style='color:{S.TEXT_MD};font-size:15px;line-height:1.6;'>"
+                f"Introduce la clave de acceso a la fase 2"
+                f"</div></div>",
+                unsafe_allow_html=True,
+            )
+            with st.form("fase2_auth", clear_on_submit=False):
+                pwd = st.text_input("clave", label_visibility="collapsed",
+                                    placeholder="Clave de acceso Fase 2")
+                ok = st.form_submit_button("🔓  Desbloquear Fase 2", use_container_width=True,
+                                           type="primary")
+            wrong = ok and not (expected and hmac.compare_digest((pwd or "").encode(), expected.encode()))
+            if wrong:
                 st.error("Clave incorrecta. Verifica e inténtalo de nuevo.")
-        st.markdown(
-            f"<div style='text-align:center;color:{S.TEXT_DIM};font-size:12px;margin-top:12px;"
-            f"font-family:{S.MONO};letter-spacing:.05em;line-height:1.6;'>◇ Si aún no tienes la clave, "
-            f"tu asesor DLP te la entregará cuando comience tu Fase 2.</div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown(
+                f"<div style='text-align:center;color:{S.TEXT_DIM};font-size:12px;margin-top:12px;"
+                f"font-family:{S.MONO};letter-spacing:.05em;line-height:1.6;'>◇ Si aún no tienes la clave, "
+                f"tu asesor DLP te la entregará cuando comience tu Fase 2.</div>",
+                unsafe_allow_html=True,
+            )
+
+    if ok and not wrong:
+        st.session_state["_fase2_ok"] = True
+        gate.empty()   # borra la portada; el resto de main() renderiza la app en este run
+        return
     st.stop()
 
 

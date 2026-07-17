@@ -1,18 +1,19 @@
-"""Sistema de diseño DLP — paleta exacta + CSS premium con animaciones.
+"""Sistema de diseño DLP — extensión visual directa de DLP Market Analyzer.
 
-Estética alineada a DLP Market Analyzer (app madre): tipografía mono en mayúsculas para
-los títulos/labels, hero dorado con glow, botones que brillan, pills de estado y
-micro-animaciones de buen gusto (fade-up, pulse, shimmer). El cuerpo de texto largo
-queda en Helvetica Neue para legibilidad.
+Los tokens y superficies son los MISMOS que usa la app madre (L-DLP-Analysis):
+tipografía Inter para cuerpo + JetBrains Mono para datos/labels, fondo radial
+Bloomberg-grade, cards en degradado 135° con borde dorado, y micro-animaciones
+(fade-up, pulse-glow, shimmer). Así ambas apps se leen como un mismo producto.
 """
 from __future__ import annotations
 
 import streamlit as st
 
-# ── Paleta (hex literales del spec — no aproximar) ───────────────────────────
-BG_DEEP = "#080B0F"
-BG_CARD = "#141920"
-BG_CARD2 = "#1A2030"
+# ── Paleta (idéntica a DLP Market Analyzer — no aproximar) ───────────────────
+BG_DEEP = "#0A0D11"      # fondo principal (analyzer)
+BG_CARD = "#0F1419"      # base de card / fondo de gráficos (analyzer)
+BG_CARD2 = "#131922"     # tope del degradado de card (analyzer)
+BG_ELEV = "#1A1F28"      # superficie elevada (tooltips, popovers)
 BG_CTA = "#0F1419"
 ORANGE = "#FFB84D"
 ORANGE_DK = "#FFA500"
@@ -23,13 +24,31 @@ RED = "#FF3B5C"
 RED_DK = "#E53935"
 BLUE = "#4A9EFF"
 BLUE_DK = "#2196F3"
+PURPLE = "#9B59FF"
 TEXT_HI = "#FFFFFF"
 TEXT_MD = "#E4E7EC"
+TEXT_SOFT = "#C8D0D8"    # tono intermedio del analyzer
 TEXT_LO = "#7A8898"
 TEXT_DIM = "#5A6878"
 BORDER = "#1E2530"
+BORDER_SOFT = "#2A3545"
 
-FONT_FAMILY = "Helvetica Neue, Helvetica, Arial, sans-serif"
+# Firma visual del analyzer: bordes/divisores teñidos de oro (no grises)
+GOLD_HAIR = "rgba(255,184,77,0.12)"
+GOLD_LINE = "rgba(255,184,77,0.15)"
+GOLD_EDGE = "rgba(255,184,77,0.18)"
+GOLD_HOVER = "rgba(255,184,77,0.35)"
+
+# Gridlines de las gráficas: hairline gris que no compite con los datos (analyzer)
+GRID_HAIR = "rgba(122,136,152,0.10)"
+GRID_ZERO = "rgba(122,136,152,0.18)"
+
+# Fondo de página exacto del analyzer
+APP_BG = "radial-gradient(ellipse at top, #0F1218 0%, #0A0D11 60%, #06080B 100%)"
+# Superficie de card exacta del analyzer
+CARD_BG = f"linear-gradient(135deg, {BG_CARD} 0%, {BG_CARD2} 100%)"
+
+FONT_FAMILY = "'Inter', sans-serif"
 MONO = "'JetBrains Mono', ui-monospace, 'SF Mono', 'Roboto Mono', monospace"
 
 
@@ -74,36 +93,57 @@ def inject_css() -> None:
     st.markdown(
         f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-        /* ── Animaciones ──────────────────────────────────────── */
-        @keyframes dlpFadeUp {{ from {{opacity:0; transform:translateY(16px);}} to {{opacity:1; transform:translateY(0);}} }}
+        /* ── Animaciones (mismas que la app madre) ────────────── */
+        @keyframes dlpFadeUp {{ from {{opacity:0; transform:translateY(20px);}} to {{opacity:1; transform:translateY(0);}} }}
+        @keyframes dlpFadeIn {{ from {{opacity:0;}} to {{opacity:1;}} }}
         @keyframes dlpBreathe {{ 0%,100% {{opacity:.55;}} 50% {{opacity:1;}} }}
+        /* pulse-glow del analyzer: glow de texto que respira */
+        @keyframes dlpPulseGlow {{
+            0%,100% {{ text-shadow: 0 0 20px rgba(255,184,77,.4), 0 0 40px rgba(255,184,77,.2); }}
+            50%     {{ text-shadow: 0 0 30px rgba(255,184,77,.7), 0 0 60px rgba(255,184,77,.4); }}
+        }}
+        /* glow-border del analyzer */
         @keyframes dlpPulse {{
-            0%,100% {{ box-shadow:0 0 0 1px rgba(255,184,77,.5), 0 8px 28px rgba(255,165,0,.22); }}
-            50% {{ box-shadow:0 0 0 1px rgba(255,184,77,.85), 0 12px 44px rgba(255,165,0,.45); }}
+            0%,100% {{ box-shadow:0 0 0 1px rgba(255,184,77,.3), 0 0 20px rgba(255,184,77,.1); }}
+            50% {{ box-shadow:0 0 0 1px rgba(255,184,77,.6), 0 0 40px rgba(255,184,77,.25); }}
         }}
         @keyframes dlpShimmer {{ 0% {{background-position:0% 50%;}} 100% {{background-position:200% 50%;}} }}
         @keyframes dlpSpin {{ from {{transform:rotate(45deg);}} to {{transform:rotate(405deg);}} }}
+        @keyframes dlpScanLine {{ 0% {{transform:translateX(-100%);}} 100% {{transform:translateX(100%);}} }}
 
-        /* ── Base ─────────────────────────────────────────────── */
-        .stApp {{ background:
-            radial-gradient(1200px 500px at 50% -200px, rgba(255,184,77,.06), rgba(8,11,15,0) 60%),
-            {BG_DEEP}; font-family: {FONT_FAMILY}; }}
+        /* ── Base (fondo radial Bloomberg-grade del analyzer) ─── */
+        html, body, [data-testid="stAppViewContainer"], .stApp {{
+            background: {APP_BG} !important;
+            color: {TEXT_MD} !important;
+            font-family: {FONT_FAMILY} !important;
+        }}
+        [data-testid="stMain"] {{ background: transparent !important; }}
         /* Embed cuadrado 1:1 (~800px): contenido centrado y compacto */
         .block-container {{ padding-top: .8rem; padding-bottom: 2rem; max-width: 780px;
-            animation: dlpFadeUp .5s ease both; }}
+            animation: dlpFadeUp .8s ease-out both; }}
         section[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],
         [data-testid="collapsedControl"] {{ display: none !important; }}
         h1, h2, h3, h4, h5 {{
             font-family: {MONO} !important; color: {TEXT_HI};
             text-transform: uppercase; letter-spacing: .06em; font-weight: 700;
         }}
-        #MainMenu, footer {{ visibility: hidden; }}
+        #MainMenu, footer, header {{ visibility: hidden; display: none !important; }}
         [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ display: none !important; }}
 
-        /* ── Hero de página ───────────────────────────────────── */
-        .dlp-page-hero {{ position: relative; text-align: center; padding: 8px 0 4px; }}
+        /* ── Scrollbar (firma del analyzer) ───────────────────── */
+        ::-webkit-scrollbar {{ width: 8px; height: 8px; }}
+        ::-webkit-scrollbar-track {{ background: {BG_DEEP}; }}
+        ::-webkit-scrollbar-thumb {{ background: linear-gradient(180deg, {BORDER_SOFT}, {BORDER}); border-radius: 4px; }}
+        ::-webkit-scrollbar-thumb:hover {{ background: rgba(255,184,77,0.4); }}
+
+        /* ── Divisores dorados (analyzer) ─────────────────────── */
+        hr {{ border-color: rgba(255,184,77,0.1) !important; margin: 16px 0 !important; }}
+
+        /* ── Hero de página (mismo tratamiento que .alpha-hero) ─ */
+        .dlp-page-hero {{ position: relative; text-align: center; padding: 8px 0 4px;
+            animation: dlpFadeUp .8s ease-out both; }}
         .dlp-page-hero .glow {{
             position:absolute; top:-30px; left:50%; transform:translateX(-50%);
             width:640px; height:240px; pointer-events:none; filter: blur(18px);
@@ -114,20 +154,21 @@ def inject_css() -> None:
             color:{GOLD}; font-size:20px; line-height:1; display:inline-block;
             filter: drop-shadow(0 0 12px rgba(255,215,64,.55)); margin-bottom: 4px;
         }}
+        /* Marca: degradado 135° + pulse-glow exactos de .alpha-hero-brand */
         .dlp-page-hero .title {{
             font-family:{MONO}; font-weight:800; font-size:38px; line-height:1.0;
-            text-transform:uppercase; letter-spacing:.01em; margin: 2px 0 6px;
-            background: linear-gradient(90deg, #FFE7A8 0%, #FFB84D 40%, #FFA500 60%, #FFE7A8 100%);
-            background-size: 200% auto; -webkit-background-clip:text; background-clip:text;
+            text-transform:uppercase; letter-spacing:.05em; margin: 2px 0 6px;
+            background: linear-gradient(135deg, {ORANGE} 0%, {GOLD} 50%, {ORANGE_DK} 100%);
+            -webkit-background-clip:text; background-clip:text;
             -webkit-text-fill-color:transparent;
-            filter: drop-shadow(0 4px 26px rgba(255,184,77,.22));
-            animation: dlpShimmer 7s linear infinite;
+            animation: dlpPulseGlow 4s ease-in-out infinite;
         }}
+        /* Tagline: Inter en mayúsculas, igual que .alpha-hero-tagline */
         .dlp-page-hero .sub {{
-            font-family:{MONO}; color:{TEXT_LO}; text-transform:uppercase;
-            letter-spacing:.28em; font-size:13px;
+            font-family:{FONT_FAMILY}; color:{TEXT_LO}; text-transform:uppercase;
+            letter-spacing:.15em; font-size:13px; font-weight:400;
         }}
-        .dlp-rule {{ height:1px; max-width:120px; margin:14px auto 6px;
+        .dlp-rule {{ height:1px; max-width:100px; margin:20px auto 6px;
             background: linear-gradient(90deg, transparent, {ORANGE}, transparent); }}
 
         /* ── Stepper ──────────────────────────────────────────── */
@@ -172,20 +213,24 @@ def inject_css() -> None:
         .dlp-side-item .lbl {{ color:{TEXT_MD}; font-size:13px; font-weight:600; }}
         .dlp-side-item .meta {{ color:{TEXT_LO}; font-size:11px; margin-top:2px; }}
 
-        /* ── Cards ────────────────────────────────────────────── */
-        .dlp-card {{ background:{BG_CARD}; border:1px solid {BORDER}; border-radius:14px;
-            padding:20px 22px; margin-bottom:16px; transition: all .18s ease;
-            animation: dlpFadeUp .45s ease both; }}
-        .dlp-card:hover {{ border-color: rgba(255,184,77,.30); transform: translateY(-2px); }}
+        /* ── Cards (superficie 135° + borde dorado del analyzer) ─ */
+        .dlp-card {{ background:{CARD_BG}; border:1px solid {GOLD_LINE}; border-radius:10px;
+            padding:20px 22px; margin-bottom:16px;
+            transition: all .3s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: 0 4px 16px rgba(0,0,0,.25);
+            animation: dlpFadeUp .4s ease-out both; }}
+        .dlp-card:hover {{ border-color: {GOLD_HOVER}; transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0,0,0,.3); }}
         .dlp-card2 {{ background:{BG_CARD2}; }}
-        .dlp-card-left {{ border-left:5px solid {ORANGE}; }}
+        /* Acento izquierdo dorado — igual que .analysis-card / .agent-header */
+        .dlp-card-left {{ border-left:3px solid {ORANGE}; }}
 
-        /* ── Hero card (resultados) ───────────────────────────── */
-        .dlp-hero {{ background:
-            radial-gradient(700px 200px at 0% 0%, rgba(255,184,77,.06), rgba(20,25,32,0) 60%), {BG_CARD};
-            border:1px solid {ORANGE}; border-radius:16px; padding:26px 30px; margin-bottom:18px;
+        /* ── Hero card (resultados) — patrón .qv-header ────────── */
+        .dlp-hero {{ background: {CARD_BG};
+            border:1px solid {GOLD_HOVER}; border-left:3px solid {ORANGE};
+            border-radius:12px; padding:26px 30px; margin-bottom:18px;
             display:flex; align-items:center; justify-content:space-between;
-            box-shadow:0 0 50px rgba(255,184,77,.07); animation: dlpFadeUp .5s ease both; }}
+            box-shadow:0 4px 24px rgba(0,0,0,.4); animation: dlpFadeUp .4s ease-out both; }}
         .dlp-hero .glyph {{ font-size:74px; font-weight:800; line-height:1; font-family:{MONO};
             background:linear-gradient(135deg,{ORANGE},{ORANGE_DK}); -webkit-background-clip:text;
             -webkit-text-fill-color:transparent; background-clip:text;

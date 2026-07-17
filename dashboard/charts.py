@@ -35,19 +35,26 @@ def _apply_growth_scale(fig: go.Figure, series: list, y_title: str = "Patrimonio
 
 
 def _apply_dlp_layout(fig: go.Figure, x_title: str, y_title: str, height: int = 460) -> go.Figure:
-    """Layout dark común a todos los charts DLP."""
+    """Layout dark común a todos los charts DLP (mismo tratamiento que DLP Analyzer).
+
+    Superficie #0F1419 (= la card CSS) para que figura y contenedor se fundan en una
+    sola pieza; grid hairline gris que no compite con los datos; tipografía JetBrains
+    Mono y tooltip oscuro con borde oro — la firma visual de la app madre.
+    """
     fig.update_layout(
         height=height,
-        paper_bgcolor=S.BG_DEEP,
-        plot_bgcolor=S.BG_DEEP,
-        font=dict(family=S.FONT_FAMILY, color=S.TEXT_MD, size=13),
+        paper_bgcolor=S.BG_CARD,
+        plot_bgcolor=S.BG_CARD,
+        font=dict(family=S.MONO, color=S.TEXT_MD, size=12),
         margin=dict(l=96, r=30, t=34, b=55),
         hovermode="x unified",
         showlegend=False,
+        hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
+                        font=dict(family=S.MONO, color=S.TEXT_MD, size=11)),
     )
     axis = dict(
-        gridcolor=S.BORDER, zerolinecolor=S.BORDER,
-        linecolor=S.BORDER, tickfont=dict(color=S.TEXT_LO),
+        gridcolor=S.GRID_HAIR, zerolinecolor=S.GRID_ZERO,
+        linecolor=S.GRID_HAIR, tickfont=dict(color=S.TEXT_LO),
         title_font=dict(color=S.TEXT_LO, size=13), title_standoff=16,
     )
     fig.update_xaxes(title=x_title, **axis)
@@ -118,8 +125,8 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None) -> 
     # Línea guía vertical + año formateado para leer el abanico con el cursor
     fig.update_xaxes(hoverformat=".1f", showspikes=True, spikemode="across",
                      spikethickness=1, spikedash="dot", spikecolor="rgba(255,184,77,0.55)")
-    fig.update_layout(hoverlabel=dict(bgcolor=S.BG_CARD, bordercolor=S.BORDER,
-                                      font=dict(family=S.FONT_FAMILY, color=S.TEXT_HI)))
+    fig.update_layout(hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
+                                      font=dict(family=S.MONO, color=S.TEXT_HI)))
     return fig
 
 
@@ -161,10 +168,10 @@ def success_gauge(prob: float, target_label: str = "") -> go.Figure:
         mode="gauge+number",
         value=pct,
         number={"suffix": "%", "valueformat": ".0f",
-                "font": {"size": 46, "color": color, "family": S.FONT_FAMILY}},
+                "font": {"size": 46, "color": color, "family": S.MONO}},
         gauge={
             "axis": {"range": [0, 100], "tickcolor": S.TEXT_LO,
-                     "tickfont": {"color": S.TEXT_LO, "size": 11}},
+                     "tickfont": {"color": S.TEXT_LO, "size": 11, "family": S.MONO}},
             "bar": {"color": color, "thickness": 0.32},
             "bgcolor": S.BG_CARD2,
             "borderwidth": 0,
@@ -178,8 +185,8 @@ def success_gauge(prob: float, target_label: str = "") -> go.Figure:
         domain={"x": [0, 1], "y": [0, 1]},
     ))
     fig.update_layout(
-        height=240, paper_bgcolor=S.BG_DEEP,
-        font=dict(family=S.FONT_FAMILY, color=S.TEXT_MD),
+        height=240, paper_bgcolor=S.BG_CARD,
+        font=dict(family=S.MONO, color=S.TEXT_MD),
         margin=dict(l=30, r=30, t=20, b=10),
         title=dict(text=target_label, font=dict(color=S.TEXT_LO, size=13), x=0.5, y=0.02),
     )
@@ -257,18 +264,20 @@ def allocation_donut(items: list[dict], lead_color: str | None = None) -> go.Fig
     colors = [base[i % len(base)] for i in range(len(items))]
     fig = go.Figure(go.Pie(
         labels=labels, values=values, hole=0.62, sort=False, direction="clockwise",
-        marker=dict(colors=colors, line=dict(color=S.BG_DEEP, width=3)),
+        marker=dict(colors=colors, line=dict(color=S.BG_CARD, width=3)),
         textinfo="label+percent", textposition="outside",
-        textfont=dict(family=S.FONT_FAMILY, color=S.TEXT_MD, size=13),
+        textfont=dict(family=S.MONO, color=S.TEXT_MD, size=13),
         hovertemplate="%{label}: %{percent}<extra></extra>",
     ))
     n = len(items)
     fig.add_annotation(text=f"<b>{n}</b><br><span style='font-size:11px'>activo{'s' if n != 1 else ''}</span>",
                        showarrow=False,
-                       font=dict(family=S.FONT_FAMILY, color=(lead_color or S.TEXT_HI), size=24))
-    fig.update_layout(height=260, paper_bgcolor=S.BG_DEEP, plot_bgcolor=S.BG_DEEP,
+                       font=dict(family=S.MONO, color=(lead_color or S.TEXT_HI), size=24))
+    fig.update_layout(height=260, paper_bgcolor=S.BG_CARD, plot_bgcolor=S.BG_CARD,
                       showlegend=False, margin=dict(l=16, r=16, t=16, b=16),
-                      font=dict(family=S.FONT_FAMILY, color=S.TEXT_MD))
+                      font=dict(family=S.MONO, color=S.TEXT_MD),
+                      hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
+                                      font=dict(family=S.MONO, color=S.TEXT_MD)))
     return fig
 
 
@@ -282,7 +291,7 @@ def stress_bar(stress: dict) -> go.Figure:
         y=names, x=dd, orientation="h",
         marker=dict(color=S.RED, line=dict(width=0)),
         text=[f"−{d:.0f}%  →  ${v:,.0f}" for d, v in zip(dd, vals)],
-        textposition="auto", textfont=dict(color=S.TEXT_HI, size=12, family=S.FONT_FAMILY),
+        textposition="auto", textfont=dict(color=S.TEXT_HI, size=12, family=S.MONO),
         hovertemplate="%{y}: −%{x:.0f}%<extra></extra>",
     ))
     _apply_dlp_layout(fig, "Caída estimada de tu portafolio (%)", "", height=300)
@@ -319,9 +328,10 @@ def ruin_gauge(prob_ruin: float) -> go.Figure:
         mode="gauge+number",
         value=pct,
         number={"suffix": "%", "valueformat": ".0f",
-                "font": {"size": 46, "color": color, "family": S.FONT_FAMILY}},
+                "font": {"size": 46, "color": color, "family": S.MONO}},
         gauge={
-            "axis": {"range": [0, 100], "tickcolor": S.TEXT_LO, "tickfont": {"color": S.TEXT_LO, "size": 11}},
+            "axis": {"range": [0, 100], "tickcolor": S.TEXT_LO,
+                     "tickfont": {"color": S.TEXT_LO, "size": 11, "family": S.MONO}},
             "bar": {"color": color, "thickness": 0.32},
             "bgcolor": S.BG_CARD2, "borderwidth": 0,
             "steps": [
@@ -333,8 +343,8 @@ def ruin_gauge(prob_ruin: float) -> go.Figure:
         },
         domain={"x": [0, 1], "y": [0, 1]},
     ))
-    fig.update_layout(height=240, paper_bgcolor=S.BG_DEEP,
-                      font=dict(family=S.FONT_FAMILY, color=S.TEXT_MD),
+    fig.update_layout(height=240, paper_bgcolor=S.BG_CARD,
+                      font=dict(family=S.MONO, color=S.TEXT_MD),
                       margin=dict(l=30, r=30, t=20, b=10),
                       title=dict(text="Probabilidad de ruina", font=dict(color=S.TEXT_LO, size=13),
                                  x=0.5, y=0.02))

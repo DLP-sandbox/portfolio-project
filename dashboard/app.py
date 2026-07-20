@@ -485,13 +485,8 @@ def render_inputs() -> dict | None:
     if not clicked:
         return None
 
-    all_syms = list(dict.fromkeys(symA + (symB or [])))
-    with st.spinner("Validando tickers…"):
-        valid, invalid = market_data.validate_tickers(all_syms)
-    if invalid:
-        st.error(f"No se encontraron en el mercado: {', '.join(invalid)}.")
-        return None
-
+    # La validación de tickers se hace en main() BAJO el overlay de carga (así se nota que
+    # la app reaccionó desde el clic, sin quedarse "estancada" con un spinner chiquito).
     monthly_flow = -withdrawal if retirement else aporte
     base = {
         "initial_capital": capital, "monthly_contribution": monthly_flow,
@@ -1217,6 +1212,22 @@ def render_candidate_results() -> None:
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
+def _scroll_to_results() -> None:
+    """Baja suavemente hasta la sección de resultados (una vez, al terminar de cargar).
+
+    El componente corre en un iframe hijo → alcanza el documento de la app vía
+    window.parent.document, donde vive el ancla '#dlp-results-anchor'.
+    """
+    import streamlit.components.v1 as stc
+
+    stc.html(
+        "<script>setTimeout(function(){try{var d=window.parent.document;"
+        "var el=d.getElementById('dlp-results-anchor');"
+        "if(el){el.scrollIntoView({behavior:'smooth',block:'start'});}}catch(e){}}, 180);</script>",
+        height=0,
+    )
+
+
 def _loader_msg(pct: int) -> str:
     if pct < 30:
         return "Bajando datos de mercado…"
@@ -1237,11 +1248,13 @@ def main() -> None:
     components.page_hero()
 
     spec = render_inputs()
+    just_computed = False
 
-    # Comparación de candidatos importados (flujo independiente del A/B)
+    # Comparación de candidatos importados (flujo independiente del A/B) — ya usa su overlay.
     run_cands = st.session_state.pop("_run_cands", None)
     if run_cands is not None:
         _compute_candidates(run_cands)
+        just_computed = True
 
     if spec is not None:
         st.session_state["cand_results"] = None   # una corrida A/B oculta la de candidatos
@@ -1249,27 +1262,39 @@ def main() -> None:
         inputs_A = dict(base, **spec["A"])
         inputs_B = dict(base, **spec["B"]) if spec["B"] else None
 
-        target = random.uniform(9.0, 15.0)
-        t0 = time.perf_counter()
+        # UN SOLO overlay a pantalla completa, continuo desde el clic: validar → simular.
         loader = st.empty()
-        loader.markdown(components.progress_overlay(0, "Preparando tu análisis…"), unsafe_allow_html=True)
-        result_A = compute(inputs_A)
-        result_B = compute(inputs_B) if inputs_B else None
-        benchmarks = run_benchmarks(inputs_A) if base["compare"] else None
-        extras_A = _build_extras(inputs_A, result_A)
-        extras_B = _build_extras(inputs_B, result_B) if inputs_B else None
-        remaining = max(target - (time.perf_counter() - t0), 3.0)
-        steps = max(int(remaining / 0.09), 24)
-        for i in range(steps + 1):
-            loader.markdown(components.progress_overlay(round(i / steps * 100), _loader_msg(round(i / steps * 100))),
-                            unsafe_allow_html=True)
-            time.sleep(remaining / steps)
-        loader.empty()
-        st.session_state.update(
-            inputs_A=inputs_A, result_A=result_A, extras_A=extras_A,
-            inputs_B=inputs_B, result_B=result_B, extras_B=extras_B, benchmarks=benchmarks,
-            elapsed=time.perf_counter() - t0,
-            pdf_bytes=None, _pdf_loading=False, _pdf_just=False)  # PDF se genera al click
+        loader.markdown(components.progress_overlay(0, "Validando tickers…"), unsafe_allow_html=True)
+        all_syms = list(dict.fromkeys(inputs_A["tickers"] + (inputs_B["tickers"] if inputs_B else [])))
+        _, invalid = market_data.validate_tickers(all_syms)
+        if invalid:
+            loader.empty()
+            st.error(f"No se encontraron en el mercado: {', '.join(invalid)}. Quítalos o corrígelos.")
+        else:
+            target = random.uniform(9.0, 15.0)
+            t0 = time.perf_counter()
+            loader.markdown(components.progress_overlay(4, "Preparando tu análisis…"), unsafe_allow_html=True)
+            result_A = compute(inputs_A)
+            result_B = compute(inputs_B) if inputs_B else None
+            benchmarks = run_benchmarks(inputs_A) if base["compare"] else None
+            extras_A = _build_extras(inputs_A, result_A)
+            extras_B = _build_extras(inputs_B, result_B) if inputs_B else None
+            remaining = max(target - (time.perf_counter() - t0), 3.0)
+            steps = max(int(remaining / 0.09), 24)
+            for i in range(steps + 1):
+                loader.markdown(components.progress_overlay(round(i / steps * 100), _loader_msg(round(i / steps * 100))),
+                                unsafe_allow_html=True)
+                time.sleep(remaining / steps)
+            loader.empty()
+            st.session_state.update(
+                inputs_A=inputs_A, result_A=result_A, extras_A=extras_A,
+                inputs_B=inputs_B, result_B=result_B, extras_B=extras_B, benchmarks=benchmarks,
+                elapsed=time.perf_counter() - t0,
+                pdf_bytes=None, _pdf_loading=False, _pdf_just=False)  # PDF se genera al click
+            just_computed = True
+
+    # Ancla para bajar automáticamente a los resultados al terminar de cargar.
+    st.markdown("<div id='dlp-results-anchor' style='scroll-margin-top:6px'></div>", unsafe_allow_html=True)
 
     if st.session_state.get("result_A") is not None:
         with st.container(key="results-capsule"):   # cápsula metálica que encierra los resultados
@@ -1284,6 +1309,9 @@ def main() -> None:
     if st.session_state.get("cand_results"):
         with st.container(key="results-capsule2"):
             render_candidate_results()
+
+    if just_computed:
+        _scroll_to_results()   # baja solo a la sección de análisis (una vez, tras cargar)
 
 
 if __name__ == "__main__":

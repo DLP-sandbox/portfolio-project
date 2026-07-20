@@ -31,6 +31,26 @@ def fmt_pct(x: float | None) -> str:
     return f"{x * 100:.0f}%"
 
 
+def progress_overlay(pct: int, message: str) -> str:
+    """Loader a pantalla completa (fijo + centrado): imposible de perderse sin importar
+    el scroll. Anillo de progreso conic-gradient + % + mensaje. Estilos en styles.py."""
+    deg = pct * 3.6
+    return f"""
+    <div class="dlp-loader-overlay">
+      <div class="dlp-loader-panel">
+        <div class="dlp-loader-ring"
+             style="background:conic-gradient({S.ORANGE} {deg}deg, {S.BG_CARD2} {deg}deg);">
+          <div class="dlp-loader-hole">
+            <span class="pct">{pct}%</span>
+            <span class="lbl">ANALIZANDO</span>
+          </div>
+        </div>
+        <div class="dlp-loader-msg">{message}</div>
+      </div>
+    </div>
+    """
+
+
 def progress_ring(pct: int, message: str) -> str:
     """HTML de un anillo de progreso circular (conic-gradient) 0-100% con número y mensaje."""
     deg = pct * 3.6
@@ -91,8 +111,8 @@ def page_hero() -> None:
         <div class="dlp-page-hero">
           <div class="glow"></div>
           <div class="diamond">◆</div>
-          <div class="title">Proyección de<br>Portafolio</div>
-          <div class="sub">Visualiza los 10.000 futuros posibles de tu portafolio</div>
+          <div class="title">Analista de<br>Portafolios</div>
+          <div class="sub">Analiza tu portafolio y sus 10.000 futuros posibles</div>
           <div class="dlp-rule"></div>
         </div>
         """,
@@ -165,15 +185,37 @@ def sample_data_notice() -> None:
     )
 
 
-def kpi_tile(label: str, value: str, color: str, sublabel: str = "") -> None:
-    """KPI tile: accent strip arriba, label en mayúsculas, valor grande en el color del KPI."""
+def kpi_tile(label: str, value: str, color: str, sublabel: str = "",
+             help: str | None = None, rating: dict | None = None) -> None:
+    """KPI tile: accent + "?" opcional + termómetro rojo→verde con palabra (Malo…Excelente).
+
+    `help`: badge "?" dorado con tooltip explicativo al hover.
+    `rating`: dict {pos:0-1, color, word} (de core.rating) → dibuja el termómetro debajo y
+    tiñe el número con el color de la calificación. Los tiles quedan de altura uniforme.
+    """
+    help_html = ""
+    if help:
+        tip = str(help).replace('"', "&quot;")
+        help_html = f"<span class='dlp-kpi-help' data-tooltip=\"{tip}\">?</span>"
+    vcolor = color
+    meter_html = ""
+    if rating:
+        vcolor = rating.get("color", color)
+        pos = max(0.0, min(1.0, float(rating.get("pos", 0.5)))) * 100.0
+        word = rating.get("word", "")
+        meter_html = (
+            f"<div class='kpi-meter'><div class='kpi-meter-track'>"
+            f"<span class='kpi-meter-dot' style='left:{pos:.0f}%;border-color:{vcolor};"
+            f"box-shadow:0 0 9px {vcolor};'></span></div>"
+            f"<div class='kpi-meter-word' style='color:{vcolor}'>{word}</div></div>")
     st.markdown(
         f"""
         <div class="dlp-kpi">
-          <div class="accent" style="background:{color};"></div>
-          <div class="kpi-label">{label}</div>
-          <div class="kpi-value" style="color:{color};">{value}</div>
+          <div class="accent" style="background:{vcolor};"></div>
+          <div class="kpi-head"><span class="kpi-label">{label}</span>{help_html}</div>
+          <div class="kpi-value" style="color:{vcolor};">{value}</div>
           <div class="kpi-sub">{sublabel}</div>
+          {meter_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -182,29 +224,45 @@ def kpi_tile(label: str, value: str, color: str, sublabel: str = "") -> None:
 
 def hero_card(glyph: str, caption: str, meta_items: list[tuple[str, str]],
               highlight_label: str, highlight_value: str, highlight_color: str) -> None:
-    """Hero card: glyph XL en gradiente naranja a la izquierda, valor destacado a la derecha."""
+    """Hero card centrado: etiqueta arriba, MONTO grande al centro, meta distribuida abajo."""
     meta_html = "".join(
-        f'<span style="margin-right:22px;">'
-        f'<span class="meta-label">{lbl}</span><br>'
-        f'<span class="meta-value" style="font-size:17px;">{val}</span></span>'
+        f'<div class="hm"><div class="hm-label">{lbl}</div>'
+        f'<div class="hm-value">{val}</div></div>'
         for lbl, val in meta_items
     )
     st.markdown(
         f"""
-        <div class="dlp-hero">
-          <div style="display:flex; align-items:center; gap:24px;">
-            <div class="glyph">{glyph}</div>
-            <div>
-              <div class="meta-label">{caption}</div>
-              <div style="margin-top:10px;">{meta_html}</div>
-            </div>
-          </div>
-          <div style="text-align:right;">
-            <div class="meta-label">{highlight_label}</div>
-            <div class="meta-value" style="font-size:46px; color:{highlight_color};">{highlight_value}</div>
-          </div>
+        <div class="dlp-hero-v2">
+          <div class="hero-top"><span class="hero-glyph">{glyph}</span> {caption} · {highlight_label}</div>
+          <div class="hero-number" style="color:{highlight_color};">{highlight_value}</div>
+          <div class="hero-meta">{meta_html}</div>
         </div>
         """,
+        unsafe_allow_html=True,
+    )
+
+
+# Sentimiento del hallazgo → (color, icono)
+_FINDING_STYLE = {
+    "positivo": (S.GREEN, "✓"),
+    "neutral": (S.BLUE, "◆"),
+    "alerta": (S.RED, "⚠"),
+}
+
+
+def finding_card(finding: dict) -> None:
+    """Tarjeta de un hallazgo: acento por sentimiento (verde/azul/rojo) + título + texto claro."""
+    color, icon = _FINDING_STYLE.get(finding.get("sentiment", "neutral"), _FINDING_STYLE["neutral"])
+    # Escapamos '$' para que Streamlit no interprete montos como LaTeX.
+    body = (finding.get("text") or "").replace("$", "\\$")
+    st.markdown(
+        f"<div class='dlp-card dlp-card-left' style='border-left-color:{color};margin-bottom:10px;padding:14px 18px;'>"
+        f"<div style='display:flex;align-items:baseline;gap:9px;'>"
+        f"<span style='color:{color};font-size:14px;'>{icon}</span>"
+        f"<b style='color:{S.TEXT_HI};font-family:{S.MONO};font-size:13.5px;letter-spacing:.03em;'>{finding.get('title','')}</b>"
+        f"<span style='margin-left:auto;color:{S.TEXT_DIM};font-family:{S.MONO};font-size:10px;"
+        f"text-transform:uppercase;letter-spacing:.1em;'>{finding.get('category','')}</span></div>"
+        f"<div style='color:{S.TEXT_MD};font-size:14px;line-height:1.6;margin-top:8px;'>{body}</div></div>",
         unsafe_allow_html=True,
     )
 

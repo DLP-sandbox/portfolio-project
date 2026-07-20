@@ -25,8 +25,8 @@ _NAME_KEYS = {"nombre", "name", "descripción", "descripcion"}
 _WEIGHT_KEYS = {"peso(%)", "peso", "peso%", "weight", "weight(%)",
                 "ponderación", "ponderacion", "%"}
 
-# Tope defensivo: nunca importamos más de esto (evita CSV enormes accidentales).
-MAX_PORTFOLIOS = 6
+# Tope: máximo 3 portafolios por archivo (el resto se ignora).
+MAX_PORTFOLIOS = 3
 MAX_ASSETS_PER_PORTFOLIO = 20
 
 
@@ -53,31 +53,17 @@ def _find_col(header: list[str], keys: set[str]) -> int | None:
     return None
 
 
-def parse_portfolios_csv(text: str) -> list[dict]:
-    """Parsea el CSV y devuelve una lista ordenada de portafolios candidatos:
+def _group_rows(rows: list[list]) -> list[dict]:
+    """Agrupa filas (la primera es el encabezado) en portafolios. Reusado por CSV y Excel.
 
-        [{"name": str, "items": [{"symbol", "name", "weight"}, ...]}, ...]
-
-    - Agrupa por el nombre del portafolio, preservando el orden de aparición.
-    - Ignora filas sin ticker o sin nombre de portafolio.
-    - Suma pesos si un mismo ticker aparece repetido en el mismo portafolio.
-    - NO normaliza pesos (de eso se encarga la app al simular).
-
-    Lanza ValueError con mensaje claro si el archivo no tiene el formato mínimo.
+    Devuelve [{"name": str, "items": [{"symbol", "name", "weight"}, ...]}, ...], en orden.
+    - Agrupa por nombre de portafolio; ignora filas sin ticker o sin portafolio.
+    - Suma pesos si un ticker se repite; NO normaliza (lo hace la app al simular).
+    - Recorta a MAX_PORTFOLIOS (3) y MAX_ASSETS_PER_PORTFOLIO por portafolio.
     """
-    if not text or not text.strip():
-        raise ValueError("El archivo está vacío.")
-
-    # Detectar delimitador (coma, punto y coma o tab) de forma robusta.
-    try:
-        delimiter = csv.Sniffer().sniff(text[:2048], delimiters=",;\t").delimiter
-    except Exception:
-        delimiter = ","
-
-    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
-    rows = [r for r in reader if any((c or "").strip() for c in r)]
+    rows = [r for r in rows if any((str(c) if c is not None else "").strip() for c in r)]
     if len(rows) < 2:
-        raise ValueError("El CSV no tiene filas de datos (solo encabezado o vacío).")
+        raise ValueError("El archivo no tiene filas de datos (solo encabezado o vacío).")
 
     header = [_norm(c) for c in rows[0]]
     i_port = _find_col(header, _PORT_KEYS)
@@ -86,7 +72,7 @@ def parse_portfolios_csv(text: str) -> list[dict]:
     i_weight = _find_col(header, _WEIGHT_KEYS)
     if i_port is None or i_tick is None:
         raise ValueError(
-            "El CSV debe incluir al menos una columna de portafolio y otra de ticker "
+            "El archivo debe incluir una columna de portafolio y otra de ticker "
             "(por ejemplo 'Portafolio' y 'Ticker').")
 
     grouped: dict[str, dict] = {}
@@ -94,19 +80,19 @@ def parse_portfolios_csv(text: str) -> list[dict]:
     for r in rows[1:]:
         if len(r) <= max(i_port, i_tick):
             continue
-        pname = (r[i_port] or "").strip()
-        symbol = sanitize_ticker(r[i_tick])
+        pname = (str(r[i_port]) if r[i_port] is not None else "").strip()
+        symbol = sanitize_ticker(str(r[i_tick]) if r[i_tick] is not None else "")
         if not pname or not symbol:
             continue
         name = ""
-        if i_name is not None and i_name < len(r):
-            name = (r[i_name] or "").strip()
+        if i_name is not None and i_name < len(r) and r[i_name] is not None:
+            name = str(r[i_name]).strip()
         name = name or symbol
         weight = _parse_weight(r[i_weight]) if (i_weight is not None and i_weight < len(r)) else 0.0
 
         if pname not in grouped:
             if len(order) >= MAX_PORTFOLIOS:
-                continue  # ignora portafolios extra más allá del tope
+                continue  # ignora portafolios extra más allá del tope (3)
             grouped[pname] = {"name": pname, "items": []}
             order.append(pname)
         items = grouped[pname]["items"]
@@ -118,5 +104,39 @@ def parse_portfolios_csv(text: str) -> list[dict]:
 
     result = [grouped[p] for p in order if grouped[p]["items"]]
     if not result:
-        raise ValueError("No se encontraron portafolios con activos válidos en el CSV.")
+        raise ValueError("No se encontraron portafolios con activos válidos en el archivo.")
     return result
+
+
+def parse_portfolios_csv(text: str) -> list[dict]:
+    """Parsea CSV (BOM, delimitador ,/;/tab, pesos con % o coma). Ver `_group_rows`."""
+    if not text or not text.strip():
+        raise ValueError("El archivo está vacío.")
+    try:
+        delimiter = csv.Sniffer().sniff(text[:2048], delimiters=",;\t").delimiter
+    except Exception:
+        delimiter = ","
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    return _group_rows([r for r in reader])
+
+
+def parse_portfolios_excel(data: bytes) -> list[dict]:
+    """Parsea un Excel (.xlsx/.xlsm/.xls) con el mismo formato. Requiere pandas + openpyxl."""
+    import pandas as pd
+    try:
+        df = pd.read_excel(io.BytesIO(data), header=None, dtype=object)
+    except ImportError:
+        raise ValueError("Para leer Excel falta la librería 'openpyxl'. Sube el archivo en CSV.")
+    except Exception as e:
+        raise ValueError(f"No se pudo leer el Excel: {e}")
+    rows = [["" if (v is None or (isinstance(v, float) and pd.isna(v))) else v for v in row]
+            for row in df.values.tolist()]
+    return _group_rows(rows)
+
+
+def parse_portfolios(filename: str, data: bytes) -> list[dict]:
+    """Dispatcher por extensión: Excel (.xlsx/.xlsm/.xls) o CSV/texto (todo lo demás)."""
+    name = (filename or "").lower()
+    if name.endswith((".xlsx", ".xlsm", ".xls")):
+        return parse_portfolios_excel(data)
+    return parse_portfolios_csv(data.decode("utf-8-sig", errors="replace"))

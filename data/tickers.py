@@ -86,3 +86,42 @@ def get_name(symbol: str) -> str:
     df = load_directory()
     hit = df[df["_sym_l"] == str(symbol).lower()]
     return hit.iloc[0]["display"] if len(hit) else str(symbol)
+
+
+# Sets conocidos para clasificar el tipo de activo (para el buscador).
+_CRYPTO = {"IBIT", "GBTC", "FBTC", "ETHE", "BITO", "ETHA", "ARKB", "BITB", "HODL", "EZBC"}
+_BOND_HINTS = ("bond", "treasury", "aggregate", "fixed income", "municipal", "tips", "corporate bond")
+
+
+def classify_type(symbol: str, name: str, is_etf: bool) -> str:
+    """Tipo legible del activo: Crypto / Bono / ETF / Acción (heurística simple)."""
+    s = str(symbol).upper()
+    n = (name or "").lower()
+    if s in _CRYPTO or "bitcoin" in n or "ethereum" in n or "crypto" in n:
+        return "Crypto"
+    if is_etf and any(h in n for h in _BOND_HINTS):
+        return "Bono"
+    return "ETF" if is_etf else "Acción"
+
+
+def _build_option_index() -> tuple[list[str], dict[str, str]]:
+    """(símbolos, {símbolo: etiqueta rica}) para el buscador tipo dropdown."""
+    df = load_directory()
+    syms: list[str] = []
+    labels: dict[str, str] = {}
+    for r in df.itertuples():
+        t = classify_type(r.symbol, r.display, r.is_etf == "Y")
+        name = (r.display or "")[:36]
+        syms.append(r.symbol)
+        labels[r.symbol] = f"{r.symbol}   ·   {name}   ·   {r.exchange} · {t}"
+    return syms, labels
+
+
+def option_index() -> tuple[list[str], dict[str, str]]:
+    """Versión cacheada de `_build_option_index` (si Streamlit está disponible)."""
+    try:
+        import streamlit as st
+
+        return st.cache_data(show_spinner=False)(_build_option_index)()
+    except Exception:
+        return _build_option_index()

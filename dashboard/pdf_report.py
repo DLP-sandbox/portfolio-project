@@ -175,7 +175,7 @@ def _page1(c, fonts, result, inputs):
     import numpy as np
     c.setFillColor(C_BG)
     c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
-    _page_header(c, fonts, "Proyección de Portafolio",
+    _page_header(c, fonts, "Analista de Portafolios",
                  "Probamos 10.000 futuros posibles de tu inversión — esto es un rango de escenarios, no una predicción")
 
     fv = result["final_values"]
@@ -327,7 +327,7 @@ def generate_report(result: dict, inputs: dict, benchmarks: list[dict] | None = 
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
-    c.setTitle("Proyección de Portafolio")
+    c.setTitle("Analista de Portafolios")
     _page1(c, fonts, result, inputs)
     _page2(c, fonts, result, inputs, benchmarks or [], conclusion)
     c.save()

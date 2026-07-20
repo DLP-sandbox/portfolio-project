@@ -47,6 +47,11 @@ GRID_ZERO = "rgba(122,136,152,0.18)"
 APP_BG = "radial-gradient(ellipse at top, #0F1218 0%, #0A0D11 60%, #06080B 100%)"
 # Superficie de card exacta del analyzer
 CARD_BG = f"linear-gradient(135deg, {BG_CARD} 0%, {BG_CARD2} 100%)"
+# Superficie "metálica": gris-azulada más clara que el fondo, con relieve, para diferenciar
+# claramente las tarjetas de la página (se usa en tiles, cards y cápsulas por pestaña).
+METAL_BG = "linear-gradient(150deg, #1B2230 0%, #12192A 100%)"
+METAL_BORDER = "rgba(255,184,77,.20)"
+METAL_SHADOW = "0 8px 26px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.05)"
 
 FONT_FAMILY = "'Inter', sans-serif"
 MONO = "'JetBrains Mono', ui-monospace, 'SF Mono', 'Roboto Mono', monospace"
@@ -113,6 +118,13 @@ def inject_css() -> None:
         @keyframes dlpSpin {{ from {{transform:rotate(45deg);}} to {{transform:rotate(405deg);}} }}
         @keyframes dlpScanLine {{ 0% {{transform:translateX(-100%);}} 100% {{transform:translateX(100%);}} }}
 
+        /* ── Curvas de easing fuertes (design-eng: las nativas son flojas) ─────
+           ease-out potente para entradas/hover · in-out para movimiento en pantalla */
+        :root {{
+            --dlp-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+            --dlp-ease-io:  cubic-bezier(0.77, 0, 0.175, 1);
+        }}
+
         /* ── Base (fondo radial Bloomberg-grade del analyzer) ─── */
         html, body, [data-testid="stAppViewContainer"], .stApp {{
             background: {APP_BG} !important;
@@ -140,6 +152,37 @@ def inject_css() -> None:
 
         /* ── Divisores dorados (analyzer) ─────────────────────── */
         hr {{ border-color: rgba(255,184,77,0.1) !important; margin: 16px 0 !important; }}
+
+        /* ── Loader overlay: fijo, centrado, imposible de perderse (patrón analyzer) ── */
+        .dlp-loader-overlay {{
+            position: fixed; inset: 0; z-index: 100000;
+            display: flex; align-items: center; justify-content: center;
+            background: radial-gradient(ellipse at center, rgba(8,11,15,.78), rgba(6,8,11,.92));
+            backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+            animation: dlpFadeIn .18s ease both;
+        }}
+        .dlp-loader-panel {{
+            display: flex; flex-direction: column; align-items: center; gap: 20px;
+            background: {CARD_BG}; border: 1px solid rgba(255,184,77,.30); border-radius: 20px;
+            padding: 36px 48px;
+            box-shadow: 0 24px 70px rgba(0,0,0,.65), 0 0 0 1px rgba(255,184,77,.08),
+                        0 0 70px rgba(255,184,77,.14);
+        }}
+        .dlp-loader-ring {{
+            width: 150px; height: 150px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 48px rgba(255,184,77,.30); transition: background .12s linear;
+        }}
+        .dlp-loader-hole {{
+            width: 116px; height: 116px; border-radius: 50%; background: {BG_DEEP};
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }}
+        .dlp-loader-hole .pct {{ font-family: {MONO}; font-size: 34px; font-weight: 800; color: {ORANGE};
+            filter: drop-shadow(0 0 12px rgba(255,184,77,.4)); }}
+        .dlp-loader-hole .lbl {{ font-family: {MONO}; font-size: 10px; letter-spacing: .20em;
+            color: {TEXT_LO}; margin-top: 3px; }}
+        .dlp-loader-msg {{ font-family: {MONO}; text-transform: uppercase; letter-spacing: .14em;
+            color: {TEXT_MD}; font-size: 13px; animation: dlpBreathe 2.4s ease-in-out infinite; }}
 
         /* ── Hero de página (mismo tratamiento que .alpha-hero) ─ */
         .dlp-page-hero {{ position: relative; text-align: center; padding: 8px 0 4px;
@@ -177,7 +220,7 @@ def inject_css() -> None:
             display:flex; align-items:center; gap:10px; padding:9px 18px; border-radius:12px;
             background:{BG_CARD}; border:1px solid {BORDER}; font-family:{MONO};
             font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:{TEXT_LO};
-            transition: all .25s ease;
+            transition: border-color .25s var(--dlp-ease-out), color .25s var(--dlp-ease-out), box-shadow .25s var(--dlp-ease-out);
         }}
         .dlp-step .num {{ width:22px; height:22px; border-radius:50%; display:flex;
             align-items:center; justify-content:center; font-size:11px; font-weight:700;
@@ -208,19 +251,39 @@ def inject_css() -> None:
         .dlp-side-title {{ color:{TEXT_LO}; font-family:{MONO}; font-size:11px; font-weight:700;
             text-transform:uppercase; letter-spacing:.16em; margin:18px 0 8px; }}
         .dlp-side-item {{ background:{BG_CARD}; border:1px solid {BORDER}; border-left:3px solid {ORANGE};
-            border-radius:8px; padding:9px 12px; margin-bottom:8px; transition: all .18s ease; }}
+            border-radius:8px; padding:9px 12px; margin-bottom:8px;
+            transition: transform .18s var(--dlp-ease-out), border-color .18s var(--dlp-ease-out); }}
         .dlp-side-item:hover {{ border-color:rgba(255,184,77,.4); transform: translateX(2px); }}
         .dlp-side-item .lbl {{ color:{TEXT_MD}; font-size:13px; font-weight:600; }}
         .dlp-side-item .meta {{ color:{TEXT_LO}; font-size:11px; margin-top:2px; }}
 
+        /* ── Hero de resultados (v2): monto grande centrado, meta distribuida ── */
+        .dlp-hero-v2 {{ text-align:center; background:
+            radial-gradient(600px 220px at 50% -40px, rgba(255,184,77,.10), rgba(0,0,0,0) 70%), {METAL_BG};
+            border:1px solid {ORANGE}; border-radius:18px; padding:24px 30px 20px; margin-bottom:18px;
+            box-shadow: {METAL_SHADOW}, 0 0 50px rgba(255,184,77,.10);
+            animation: dlpFadeUp .5s var(--dlp-ease-out) both; }}
+        .dlp-hero-v2 .hero-top {{ font-family:{MONO}; text-transform:uppercase; letter-spacing:.14em;
+            font-size:11.5px; color:{TEXT_LO}; }}
+        .dlp-hero-v2 .hero-top .hero-glyph {{ color:{GOLD}; filter:drop-shadow(0 0 8px rgba(255,215,64,.5)); }}
+        .dlp-hero-v2 .hero-number {{ font-family:{MONO}; font-weight:800; line-height:1.02;
+            font-size:clamp(38px, 8.5vw, 60px); margin:6px 0 2px;
+            filter: drop-shadow(0 4px 26px rgba(255,184,77,.22)); }}
+        .dlp-hero-v2 .hero-meta {{ display:flex; justify-content:center; gap:12px; margin-top:16px;
+            flex-wrap:wrap; border-top:1px solid {BORDER}; padding-top:14px; }}
+        .dlp-hero-v2 .hm {{ flex:1; min-width:110px; }}
+        .dlp-hero-v2 .hm-label {{ font-family:{MONO}; font-size:10px; text-transform:uppercase;
+            letter-spacing:.10em; color:{TEXT_LO}; }}
+        .dlp-hero-v2 .hm-value {{ font-size:17px; font-weight:700; color:{TEXT_HI}; margin-top:3px; }}
+
         /* ── Cards (superficie 135° + borde dorado del analyzer) ─ */
-        .dlp-card {{ background:{CARD_BG}; border:1px solid {GOLD_LINE}; border-radius:10px;
+        .dlp-card {{ background:{METAL_BG}; border:1px solid {METAL_BORDER}; border-radius:12px;
             padding:20px 22px; margin-bottom:16px;
-            transition: all .3s cubic-bezier(0.4,0,0.2,1);
-            box-shadow: 0 4px 16px rgba(0,0,0,.25);
-            animation: dlpFadeUp .4s ease-out both; }}
+            transition: transform .25s var(--dlp-ease-out), border-color .25s var(--dlp-ease-out), box-shadow .25s var(--dlp-ease-out);
+            box-shadow: {METAL_SHADOW};
+            animation: dlpFadeUp .4s var(--dlp-ease-out) both; }}
         .dlp-card:hover {{ border-color: {GOLD_HOVER}; transform: translateY(-2px);
-            box-shadow: 0 4px 16px rgba(0,0,0,.3); }}
+            box-shadow: {METAL_SHADOW}, 0 0 26px rgba(255,184,77,.07); }}
         .dlp-card2 {{ background:{BG_CARD2}; }}
         /* Acento izquierdo dorado — igual que .analysis-card / .agent-header */
         .dlp-card-left {{ border-left:3px solid {ORANGE}; }}
@@ -239,17 +302,51 @@ def inject_css() -> None:
             text-transform:uppercase; letter-spacing:.10em; }}
         .dlp-hero .meta-value {{ color:{TEXT_HI}; font-size:20px; font-weight:700; }}
 
-        /* ── KPI tile ─────────────────────────────────────────── */
-        .dlp-kpi {{ position:relative; background:{BG_CARD}; border:1px solid {BORDER};
-            border-radius:12px; padding:22px 18px 18px; min-height:150px; overflow:hidden;
-            transition: all .18s ease; animation: dlpFadeUp .45s ease both; }}
-        .dlp-kpi:hover {{ transform: translateY(-3px); border-color: rgba(255,184,77,.25); }}
-        .dlp-kpi .accent {{ position:absolute; top:0; left:0; right:0; height:5px; }}
-        .dlp-kpi .kpi-label {{ color:{TEXT_LO}; font-family:{MONO}; font-size:12px; font-weight:700;
-            text-transform:uppercase; letter-spacing:.10em; }}
-        .dlp-kpi .kpi-value {{ font-family:{MONO}; font-size:36px; font-weight:800; line-height:1.15;
-            margin:10px 0 4px; }}
-        .dlp-kpi .kpi-sub {{ color:{TEXT_LO}; font-size:13px; }}
+        /* ── KPI tile (stat tile): superficie metálica + borde dorado + termómetro + "?" ── */
+        .dlp-kpi {{ position:relative; display:flex; flex-direction:column;
+            background:{METAL_BG}; border:1px solid rgba(255,184,77,.30); border-radius:13px;
+            padding:16px 17px 15px; min-height:178px; height:100%; overflow:visible;
+            box-shadow: {METAL_SHADOW}, 0 0 0 1px rgba(255,184,77,.05);
+            transition: transform .2s var(--dlp-ease-out), border-color .2s var(--dlp-ease-out),
+                        box-shadow .2s var(--dlp-ease-out);
+            animation: dlpFadeUp .45s var(--dlp-ease-out) both; }}
+        .dlp-kpi:hover {{ transform: translateY(-3px); border-color: {GOLD_HOVER};
+            box-shadow: {METAL_SHADOW}, 0 0 0 1px rgba(255,184,77,.14), 0 0 34px rgba(255,184,77,.12); }}
+        .dlp-kpi .accent {{ position:absolute; top:0; left:0; right:0; height:4px;
+            border-radius:13px 13px 0 0; opacity:.95; }}
+        .dlp-kpi .kpi-head {{ display:flex; align-items:center; gap:8px; }}
+        .dlp-kpi .kpi-label {{ color:{TEXT_SOFT}; font-family:{MONO}; font-size:11.5px; font-weight:700;
+            text-transform:uppercase; letter-spacing:.10em; line-height:1.2; flex:1; min-width:0; }}
+        .dlp-kpi .kpi-value {{ font-family:{MONO}; font-weight:800; line-height:1.1;
+            font-size:clamp(20px, 4.0vw, 31px); margin:8px 0 2px; overflow-wrap:anywhere; }}
+        .dlp-kpi .kpi-sub {{ color:{TEXT_LO}; font-size:12px; line-height:1.35; }}
+        /* Termómetro rojo→verde con marcador + palabra (pinned al fondo → tiles uniformes) */
+        .dlp-kpi .kpi-meter {{ margin-top:auto; padding-top:12px; }}
+        .kpi-meter-track {{ position:relative; height:6px; border-radius:4px;
+            background: linear-gradient(90deg, {RED} 0%, {ORANGE} 50%, {GREEN} 100%);
+            box-shadow: inset 0 1px 2px rgba(0,0,0,.5); }}
+        .kpi-meter-dot {{ position:absolute; top:50%; transform:translate(-50%,-50%);
+            width:13px; height:13px; border-radius:50%; background:#FFFFFF; border:2.5px solid #fff; }}
+        .kpi-meter-word {{ font-family:{MONO}; font-size:10.5px; font-weight:800;
+            text-transform:uppercase; letter-spacing:.08em; margin-top:6px; text-align:right; }}
+
+        /* Badge "?" dorado con tooltip (portado de DLP Analyzer .kpi-help) */
+        .dlp-kpi-help {{ display:inline-flex; align-items:center; justify-content:center;
+            width:17px; height:17px; border-radius:50%; background:rgba(255,184,77,.10);
+            border:1px solid rgba(255,184,77,.45); color:{ORANGE}; font-size:11px; font-weight:800;
+            font-family:{FONT_FAMILY}; cursor:help; position:relative; flex-shrink:0;
+            transition: all .2s var(--dlp-ease-out); }}
+        .dlp-kpi-help:hover {{ background:rgba(255,184,77,.22); border-color:{ORANGE}; color:{GOLD};
+            transform:scale(1.12); }}
+        .dlp-kpi-help::after {{ content:attr(data-tooltip); position:absolute; bottom:calc(100% + 9px);
+            right:-6px; background:linear-gradient(135deg,{BG_CARD2},{BG_ELEV}); color:{TEXT_MD};
+            padding:11px 13px; border-radius:9px; border:1px solid rgba(255,184,77,.35);
+            border-bottom:2px solid {ORANGE}; white-space:normal; width:238px; font-size:12.5px;
+            font-weight:400; font-family:{FONT_FAMILY}; line-height:1.5; letter-spacing:0;
+            text-transform:none; text-align:left; z-index:9999; pointer-events:none;
+            box-shadow:0 12px 32px rgba(0,0,0,.7);
+            opacity:0; transform:translateY(4px); transition: opacity .2s ease, transform .2s ease; }}
+        .dlp-kpi-help:hover::after {{ opacity:1; transform:translateY(0); }}
 
         /* ── Disclaimer ───────────────────────────────────────── */
         .dlp-disclaimer {{ background:rgba(255,59,92,.08); border:1px solid rgba(255,59,92,.45);
@@ -263,28 +360,42 @@ def inject_css() -> None:
             color:{TEXT_MD}; font-size:13.5px; }}
 
         /* ── Botones ──────────────────────────────────────────── */
+        /* CTA primario "Analizar": color SÓLIDO + borde nítido dorado + glow en el borde que
+           llama la atención (estático premium, sin pulse perpetuo) + feedback al presionar. */
         button[data-testid^="stBaseButton-primary"] {{
-            background: linear-gradient(180deg, #FFD884 0%, {ORANGE} 50%, {ORANGE_DK} 100%) !important;
+            background: {ORANGE} !important;
             color:#1A1206 !important; font-family:{MONO} !important; font-weight:800 !important;
-            text-transform:uppercase; letter-spacing:.10em; border:none !important;
-            border-radius:12px !important; padding:14px 20px !important;
-            box-shadow:0 0 0 1px rgba(255,184,77,.5), 0 8px 28px rgba(255,165,0,.22) !important;
-            animation: dlpPulse 2.8s ease-in-out infinite; transition: transform .16s ease;
+            text-transform:uppercase; letter-spacing:.12em; font-size:15px !important;
+            border:1.5px solid rgba(255,226,140,.95) !important;
+            border-radius:12px !important; padding:15px 22px !important;
+            box-shadow: 0 0 0 1px rgba(255,184,77,.45), 0 0 22px rgba(255,184,77,.38),
+                        0 8px 26px rgba(255,165,0,.30), inset 0 1px 0 rgba(255,255,255,.35) !important;
+            transition: transform .16s var(--dlp-ease-out), box-shadow .2s var(--dlp-ease-out),
+                        background .16s var(--dlp-ease-out);
         }}
-        button[data-testid^="stBaseButton-primary"]:hover {{ transform: translateY(-2px); }}
+        button[data-testid^="stBaseButton-primary"]:hover {{
+            background: #FFC85C !important; transform: translateY(-2px);
+            box-shadow: 0 0 0 1px rgba(255,214,110,.8), 0 0 34px rgba(255,184,77,.55),
+                        0 12px 34px rgba(255,165,0,.42), inset 0 1px 0 rgba(255,255,255,.4) !important; }}
+        button[data-testid^="stBaseButton-primary"]:active {{ transform: scale(.97); }}
         button[data-testid^="stBaseButton-primary"]:disabled {{
             background:{BG_CARD2} !important; color:{TEXT_DIM} !important;
             box-shadow:none !important; animation:none; opacity:1 !important;
             border:1px dashed {BORDER} !important;
         }}
+        /* Secundario: superficie sólida azul-gris + borde nítido */
         button[data-testid^="stBaseButton-secondary"] {{
             background:{BG_CARD2} !important; color:{TEXT_MD} !important;
-            border:1px solid {BORDER} !important; border-radius:10px !important;
+            border:1px solid {BORDER_SOFT} !important; border-radius:10px !important;
             font-family:{MONO} !important; font-weight:700 !important; letter-spacing:.06em;
-            text-transform:uppercase; transition: all .16s ease;
+            text-transform:uppercase; padding:11px 18px !important;
+            transition: transform .16s var(--dlp-ease-out), border-color .16s var(--dlp-ease-out),
+                        color .16s var(--dlp-ease-out), box-shadow .16s var(--dlp-ease-out);
         }}
         button[data-testid^="stBaseButton-secondary"]:hover {{
-            border-color:{ORANGE} !important; color:{ORANGE} !important; transform: translateY(-1px); }}
+            border-color:{ORANGE} !important; color:{ORANGE} !important; transform: translateY(-1px);
+            box-shadow: 0 0 18px rgba(255,184,77,.12) !important; }}
+        button[data-testid^="stBaseButton-secondary"]:active {{ transform: scale(.97); }}
 
         /* Inputs */
         .stTextInput input, .stNumberInput input {{
@@ -301,13 +412,13 @@ def inject_css() -> None:
 
         /* ── Cards vía keyed containers: st.container(key="card-…") ── */
         div[class*="st-key-card-"] {{
-            background: linear-gradient(180deg, #151A22 0%, #10151B 100%);
-            border: 1px solid {BORDER}; border-radius: 18px;
+            background: {METAL_BG};
+            border: 1px solid {METAL_BORDER}; border-radius: 18px;
             padding: 10px 26px 22px; margin-bottom: 18px;
-            box-shadow: 0 14px 44px rgba(0,0,0,.38);
-            transition: border-color .2s ease;
+            box-shadow: {METAL_SHADOW};
+            transition: border-color .2s var(--dlp-ease-out);
         }}
-        div[class*="st-key-card-"]:hover {{ border-color: rgba(255,184,77,.20); }}
+        div[class*="st-key-card-"]:hover {{ border-color: rgba(255,184,77,.26); }}
         .dlp-card-head {{ display:flex; align-items:baseline; gap:11px; margin: 8px 0 16px;
             border-bottom:1px solid {BORDER}; padding-bottom:12px; }}
         .dlp-card-head .ic {{ color:{ORANGE}; font-size:15px;
@@ -344,7 +455,7 @@ def inject_css() -> None:
         /* Tarjeta de un ticker: código a la izq (con color), nombre+bolsa a la der */
         .dlp-tk {{ display:flex; align-items:center; gap:14px; padding:9px 12px;
             background:{BG_CARD2}; border:1px solid {BORDER}; border-radius:11px;
-            transition: all .15s ease; }}
+            transition: transform .15s var(--dlp-ease-out), border-color .15s var(--dlp-ease-out); }}
         .dlp-tk:hover {{ border-color: rgba(255,184,77,.45); transform: translateX(2px); }}
         .dlp-tk .code {{ font-family:{MONO}; font-weight:800; font-size:18px; min-width:72px;
             text-align:center; padding:8px 6px; border:1px solid; border-radius:9px;
@@ -368,8 +479,10 @@ def inject_css() -> None:
             border:1.5px dashed rgba(74,158,255,.7) !important; border-radius:12px !important;
             padding:14px 18px !important; font-family:{MONO} !important; font-weight:800 !important;
             text-transform:uppercase; letter-spacing:.08em; animation:none !important; }}
+        div.st-key-addb button {{ transition: transform .16s var(--dlp-ease-out), background .16s var(--dlp-ease-out); }}
         div.st-key-addb button:hover {{ background: rgba(74,158,255,.18) !important;
             transform: translateY(-1px); }}
+        div.st-key-addb button:active {{ transform: scale(.97); }}
 
         /* ── Tabla comparativa A vs B ── */
         .dlp-cmp {{ width:100%; border-collapse:collapse; font-family:{FONT_FAMILY}; margin-top:4px; }}
@@ -400,8 +513,10 @@ def inject_css() -> None:
         .dlp-vsm .m-row {{ display:flex; align-items:center; gap:10px; margin:5px 0; }}
         .dlp-vsm .m-tag {{ font-family:{MONO}; font-weight:800; font-size:13px; width:16px; }}
         .dlp-vsm .m-track {{ flex:1; height:15px; background:{BG_CARD2}; border-radius:8px;
-            overflow:hidden; }}
-        .dlp-vsm .m-fill {{ height:100%; border-radius:8px; }}
+            overflow:hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.45); }}
+        .dlp-vsm .m-fill {{ height:100%; border-radius:8px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -3px 5px rgba(0,0,0,.22),
+                        0 0 9px rgba(255,184,77,.12); }}
         .dlp-vsm .m-val {{ font-family:{MONO}; font-size:13.5px; color:{TEXT_LO};
             min-width:104px; text-align:right; }}
         .dlp-vsm .m-val.m-win {{ color:{TEXT_HI}; font-weight:800; }}
@@ -414,8 +529,98 @@ def inject_css() -> None:
             font-family:{MONO} !important; font-weight:800 !important; text-transform:uppercase;
             letter-spacing:.10em; font-size:16px !important; padding:18px 24px !important;
             box-shadow:0 0 0 1px rgba(255,215,64,.65), 0 10px 36px rgba(255,184,77,.45) !important;
-            animation: dlpPulse 2.4s ease-in-out infinite; transition: transform .16s ease; }}
+            transition: transform .16s var(--dlp-ease-out); }}
         div.st-key-pdfgo button:hover, div.st-key-pdfdl button:hover {{ transform: translateY(-2px); }}
+        div.st-key-pdfgo button:active, div.st-key-pdfdl button:active {{ transform: scale(.97); }}
+
+        /* ── File uploader: español + nube dorada (traduce el UI interno de Streamlit) ── */
+        [data-testid="stFileUploaderDropzone"] {{
+            background:{BG_CARD2} !important; border:1.5px dashed rgba(255,184,77,.42) !important;
+            border-radius:12px !important; transition: border-color .18s var(--dlp-ease-out); }}
+        [data-testid="stFileUploaderDropzone"]:hover {{ border-color:{ORANGE} !important; }}
+        [data-testid="stFileUploaderDropzone"] svg {{ fill:{ORANGE} !important; color:{ORANGE} !important;
+            filter: drop-shadow(0 0 8px rgba(255,184,77,.4)); }}
+        /* Ocultar textos internos en inglés y poner español */
+        [data-testid="stFileUploaderDropzoneInstructions"] span,
+        [data-testid="stFileUploaderDropzoneInstructions"] small {{ display:none !important; }}
+        [data-testid="stFileUploaderDropzoneInstructions"]::after {{
+            content:"Arrastra tu archivo aquí, o explóralo — CSV o Excel"; display:block;
+            font-family:{FONT_FAMILY}; color:{TEXT_MD}; font-size:13.5px; letter-spacing:.02em;
+            margin-top:2px; }}
+        [data-testid="stFileUploaderDropzone"] button {{ font-size:0 !important; position:relative; }}
+        [data-testid="stFileUploaderDropzone"] button::after {{
+            content:"Explorar"; font-size:13px; font-family:{MONO}; font-weight:700;
+            letter-spacing:.06em; text-transform:uppercase; }}
+
+        /* ── Cápsula que encierra los resultados (marco metálico sutil, distinto del fondo) ── */
+        div[class*="st-key-results-capsule"] {{
+            background: rgba(9,12,17,.45); border: 1px solid rgba(255,184,77,.16);
+            border-radius: 22px; padding: 10px 16px 16px; margin-top: 16px;
+            box-shadow: inset 0 1px 0 rgba(255,184,77,.06), 0 10px 40px rgba(0,0,0,.35); }}
+
+        /* ── Sub-cards del builder (dona + "En tu portafolio"): metálico más claro ── */
+        div[class*="st-key-donutcard_"], div[class*="st-key-holdings_"] {{
+            background: linear-gradient(150deg, #212A3B 0%, #171F2E 100%);
+            border: 1px solid rgba(255,184,77,.16); border-radius: 14px; padding: 12px 16px;
+            box-shadow: 0 6px 20px rgba(0,0,0,.36), inset 0 1px 0 rgba(255,255,255,.06); }}
+        div[class*="st-key-holdings_"] {{ margin-top: 14px; }}
+
+        /* ── Buscador de activos: campo + tarjetas de resultado clickeables ── */
+        div[class*="st-key-q_"] input {{
+            background:{BG_CARD2} !important; border:1.5px solid rgba(255,184,77,.35) !important;
+            border-radius:11px !important; height:50px !important; font-family:{MONO} !important;
+            font-size:15px !important; }}
+        div[class*="st-key-q_"] input:focus {{ border-color:{ORANGE} !important;
+            box-shadow:0 0 0 3px rgba(255,184,77,.15) !important; }}
+        div[class*="st-key-searchres_"] {{ margin:6px 0 2px; }}
+        div[class*="st-key-add_"] button {{
+            width:100% !important; text-align:left !important; justify-content:flex-start !important;
+            background:{BG_CARD2} !important; border:1px solid {BORDER} !important;
+            border-radius:11px !important; padding:10px 14px !important; margin-bottom:6px !important;
+            font-family:{FONT_FAMILY} !important; font-weight:400 !important; text-transform:none !important;
+            letter-spacing:0 !important; color:{TEXT_LO} !important; font-size:12.5px !important;
+            transition: transform .16s var(--dlp-ease-out), border-color .16s var(--dlp-ease-out),
+                        box-shadow .16s var(--dlp-ease-out) !important; }}
+        div[class*="st-key-add_"] button:hover {{ transform: scale(1.02) !important;
+            border-color:{ORANGE} !important; box-shadow:0 0 18px rgba(255,184,77,.22) !important; }}
+        div[class*="st-key-add_"] button p {{ margin:0 !important; }}
+        div[class*="st-key-add_"] button strong {{ color:{TEXT_HI} !important; font-family:{MONO} !important;
+            font-size:16px !important; font-weight:800 !important; margin-right:6px; }}
+
+        /* ── Tabs con fondo + borde distinto (portafolios 1/2 y resultados) ── */
+        .stTabs [data-baseweb="tab"] {{ background:{BG_CARD} !important; border:1px solid {BORDER} !important;
+            border-bottom:none !important; border-radius:10px 10px 0 0 !important;
+            padding:9px 18px !important; margin-right:3px !important; }}
+        .stTabs [data-baseweb="tab"][aria-selected="true"] {{
+            background:{METAL_BG} !important; border-color:{GOLD_HOVER} !important;
+            color:{ORANGE} !important; box-shadow:0 -3px 16px rgba(255,184,77,.12); }}
+
+        /* ── Slider de horizonte: grueso, protagonista, con glow dorado ── */
+        .stSlider [data-baseweb="slider"] {{ padding-top:12px !important; padding-bottom:2px !important; }}
+        .stSlider [data-baseweb="slider"] > div {{ height:10px !important; border-radius:6px !important; }}
+        .stSlider [data-baseweb="slider"] div[role="slider"] {{
+            height:28px !important; width:28px !important;
+            background:{ORANGE} !important; border:3px solid #FFE9B8 !important;
+            box-shadow:0 0 0 6px rgba(255,184,77,.16), 0 0 22px rgba(255,184,77,.55),
+                       0 3px 12px rgba(0,0,0,.6) !important; }}
+        [data-testid="stSliderThumbValue"] {{ color:{ORANGE} !important; font-family:{MONO} !important;
+            font-weight:800 !important; font-size:15px !important; }}
+
+        /* ── Reduced motion (Apple/accesibilidad): sin movimiento vestibular ────
+           colapsa bucles perpetuos y quita los desplazamientos de hover/entrada,
+           conservando los cambios de opacidad/color que ayudan a comprender. */
+        @media (prefers-reduced-motion: reduce) {{
+            *, *::before, *::after {{
+                animation-duration: .001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: .05ms !important;
+            }}
+            .dlp-card:hover, .dlp-kpi:hover, .dlp-side-item:hover, .dlp-tk:hover,
+            button[data-testid^="stBaseButton-primary"]:hover,
+            button[data-testid^="stBaseButton-secondary"]:hover,
+            div.st-key-addb button:hover,
+            div.st-key-pdfgo button:hover, div.st-key-pdfdl button:hover {{ transform: none !important; }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,

@@ -43,8 +43,8 @@ def _apply_dlp_layout(fig: go.Figure, x_title: str, y_title: str, height: int = 
     """
     fig.update_layout(
         height=height,
-        paper_bgcolor=S.BG_CARD,
-        plot_bgcolor=S.BG_CARD,
+        paper_bgcolor="rgba(0,0,0,0)",   # transparente → se integra con la tarjeta metálica
+        plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family=S.MONO, color=S.TEXT_MD, size=12),
         margin=dict(l=96, r=30, t=34, b=55),
         hovermode="x unified",
@@ -87,10 +87,13 @@ def _add_glow_line(fig: go.Figure, x, y, color: str, glow_rgba: tuple[str, str])
                              hoverinfo="skip", showlegend=False))
 
 
-def fan_chart(percentiles: dict, n_months: int, target: float | None = None) -> go.Figure:
+def fan_chart(percentiles: dict, n_months: int, target: float | None = None,
+              initial_capital: float | None = None, monthly_contribution: float | None = None) -> go.Figure:
     """Abanico de escenarios: bandas P5-P95 y P25-P75 + mediana con glow.
 
     `percentiles`: dict con claves P5/P25/P50/P75/P95 → arrays de largo n_months+1.
+    Si se pasan `initial_capital`/`monthly_contribution`, dibuja una línea gris "Aportado"
+    (capital + aportes acumulados, sin rendimiento) para contrastar con lo "Invertido".
     """
     x = np.arange(n_months + 1) / 12.0  # eje X en años
     fig = go.Figure()
@@ -99,14 +102,20 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None) -> 
     _add_band(fig, x, percentiles["P5"], percentiles["P95"], "rgba(255,184,77,0.15)")
     _add_band(fig, x, percentiles["P25"], percentiles["P75"], "rgba(255,184,77,0.30)")
 
+    # Línea "Aportado" (gris): capital + aportes acumulados, sin rendimiento.
+    if initial_capital is not None and monthly_contribution is not None:
+        aportado = np.clip(initial_capital + monthly_contribution * np.arange(n_months + 1), 0.0, None)
+        fig.add_trace(go.Scatter(x=x, y=aportado, mode="lines", name="Aportado",
+                                 line=dict(color="#8A97A8", width=2, dash="dot"),
+                                 hovertemplate="<b>Aportado</b>: $%{y:,.0f}<extra></extra>"))
+
     # Mediana con glow triple
     _add_glow_line(fig, x, percentiles["P50"], S.ORANGE,
                    ("rgba(255,184,77,0.18)", "rgba(255,184,77,0.35)"))
 
-    # Trazas invisibles para hover unificado en tiempo real (máx / mediana / mín).
-    # Orden P5→P50→P95 para que en el tooltip queden de menor a mayor.
+    # Trazas invisibles para hover unificado (mín / invertido / máx).
     for name, key, col in [("Pesimista (P5)", "P5", S.RED),
-                           ("Mediana (P50)", "P50", S.ORANGE),
+                           ("Invertido (mediana)", "P50", S.ORANGE),
                            ("Optimista (P95)", "P95", S.GREEN)]:
         fig.add_trace(go.Scatter(
             x=x, y=percentiles[key], mode="lines", name=name, showlegend=False,
@@ -120,8 +129,9 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None) -> 
                       annotation_font=dict(color=S.GREEN, size=12))
 
     _apply_dlp_layout(fig, "Años", "Patrimonio (USD)", height=340)
-    # Escala Y log si hay crecimiento compuesto fuerte (lee mejor todos los años, no solo el final)
-    _apply_growth_scale(fig, [percentiles["P5"], percentiles["P95"]])
+    # Escala LINEAL: así la línea "Aportado" (aportes constantes) se ve realmente recta y se
+    # aprecia la brecha con lo "Invertido" (interés compuesto).
+    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
     # Línea guía vertical + año formateado para leer el abanico con el cursor
     fig.update_xaxes(hoverformat=".1f", showspikes=True, spikemode="across",
                      spikethickness=1, spikedash="dot", spikecolor="rgba(255,184,77,0.55)")
@@ -143,10 +153,15 @@ def histogram_final(final_values: np.ndarray, bins: int = 60, plain_labels: bool
                       np.where(centers >= p95, S.GREEN, S.ORANGE))
 
     fig = go.Figure(go.Bar(
-        x=centers, y=counts, marker=dict(color=colors, line=dict(width=0)),
+        x=centers, y=counts, marker=dict(color=colors, line=dict(width=0)), opacity=0.92,
         width=(edges[1] - edges[0]) * 0.92,
         hovertemplate="$%{x:,.0f}<br>%{y} escenarios<extra></extra>",
     ))
+    # Contorno con glow (firma DLP): traza la silueta de la distribución con brillo dorado.
+    fig.add_trace(go.Scatter(x=centers, y=counts, mode="lines", hoverinfo="skip", showlegend=False,
+                             line=dict(color="rgba(255,184,77,0.16)", width=10, shape="spline", smoothing=0.6)))
+    fig.add_trace(go.Scatter(x=centers, y=counts, mode="lines", hoverinfo="skip", showlegend=False,
+                             line=dict(color="rgba(255,215,64,0.9)", width=2.2, shape="spline", smoothing=0.6)))
 
     lbl = (["Peor 5%", "Típico", "Mejor 5%"] if plain_labels else ["P5", "Mediana", "P95"])
     for value, color, label in [(p5, S.RED, lbl[0]), (p50, S.ORANGE, lbl[1]), (p95, S.GREEN, lbl[2])]:
@@ -185,7 +200,7 @@ def success_gauge(prob: float, target_label: str = "") -> go.Figure:
         domain={"x": [0, 1], "y": [0, 1]},
     ))
     fig.update_layout(
-        height=240, paper_bgcolor=S.BG_CARD,
+        height=240, paper_bgcolor="rgba(0,0,0,0)",
         font=dict(family=S.MONO, color=S.TEXT_MD),
         margin=dict(l=30, r=30, t=20, b=10),
         title=dict(text=target_label, font=dict(color=S.TEXT_LO, size=13), x=0.5, y=0.02),
@@ -273,7 +288,7 @@ def allocation_donut(items: list[dict], lead_color: str | None = None) -> go.Fig
     fig.add_annotation(text=f"<b>{n}</b><br><span style='font-size:11px'>activo{'s' if n != 1 else ''}</span>",
                        showarrow=False,
                        font=dict(family=S.MONO, color=(lead_color or S.TEXT_HI), size=24))
-    fig.update_layout(height=260, paper_bgcolor=S.BG_CARD, plot_bgcolor=S.BG_CARD,
+    fig.update_layout(height=260, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                       showlegend=False, margin=dict(l=16, r=16, t=16, b=16),
                       font=dict(family=S.MONO, color=S.TEXT_MD),
                       hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
@@ -343,9 +358,67 @@ def ruin_gauge(prob_ruin: float) -> go.Figure:
         },
         domain={"x": [0, 1], "y": [0, 1]},
     ))
-    fig.update_layout(height=240, paper_bgcolor=S.BG_CARD,
+    fig.update_layout(height=240, paper_bgcolor="rgba(0,0,0,0)",
                       font=dict(family=S.MONO, color=S.TEXT_MD),
                       margin=dict(l=30, r=30, t=20, b=10),
                       title=dict(text="Probabilidad de ruina", font=dict(color=S.TEXT_LO, size=13),
                                  x=0.5, y=0.02))
+    return fig
+
+
+def risk_vs_weight_bar(assets: list[dict], max_rows: int = 8) -> go.Figure:
+    """Barras horizontales agrupadas: peso% vs contribución al riesgo% por activo.
+
+    Deja ver de un vistazo qué activos aportan más riesgo del que su peso sugiere.
+    `assets`: [{symbol, weight, risk_contrib}, ...] (idealmente ordenado por riesgo desc).
+    """
+    rows = assets[:max_rows]
+    syms = [a["symbol"] for a in rows][::-1]          # invertido → el mayor queda arriba
+    wt = [a["weight"] * 100 for a in rows][::-1]
+    rc = [a["risk_contrib"] * 100 for a in rows][::-1]
+    # Paleta sobria y clara: azul acero = peso, naranja de marca = riesgo (dos series limpias).
+    fig = go.Figure()
+    fig.add_trace(go.Bar(y=syms, x=wt, orientation="h", name="Peso",
+                         marker=dict(color="#5B7794", line=dict(color="rgba(255,255,255,.16)", width=1)),
+                         hovertemplate="%{y} · Peso: %{x:.0f}%<extra></extra>"))
+    fig.add_trace(go.Bar(y=syms, x=rc, orientation="h", name="Riesgo",
+                         marker=dict(color=S.ORANGE, line=dict(color="rgba(255,255,255,.22)", width=1)),
+                         hovertemplate="%{y} · Riesgo: %{x:.0f}%<extra></extra>"))
+    _apply_dlp_layout(fig, "% del portafolio", "", height=max(240, 34 * len(rows) + 74))
+    fig.update_layout(barmode="group", hovermode="closest", showlegend=True,
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                                  bgcolor="rgba(0,0,0,0)", font=dict(color=S.TEXT_MD, size=12)),
+                      margin=dict(l=70, r=20, t=44, b=46))
+    fig.update_xaxes(ticksuffix="%")
+    fig.update_yaxes(automargin=True, tickfont=dict(family=S.MONO, color=S.TEXT_MD, size=12))
+    return fig
+
+
+def diversification_meter(avg_corr: float) -> go.Figure:
+    """Gauge de correlación media (diversificación real). Verde <0.4, naranja 0.4-0.7, rojo >0.7."""
+    val = max(0.0, min(1.0, avg_corr)) * 100.0
+    color = S.GREEN if avg_corr < 0.4 else (S.ORANGE if avg_corr < 0.7 else S.RED)
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number", value=val,
+        title={"text": "Correlación del portafolio",
+               "font": {"size": 12.5, "color": S.TEXT_LO, "family": S.MONO}},
+        number={"suffix": "%", "valueformat": ".0f",
+                "font": {"size": 38, "color": color, "family": S.MONO}},
+        gauge={
+            "axis": {"range": [0, 100], "tickcolor": S.TEXT_LO,
+                     "tickfont": {"color": S.TEXT_LO, "size": 11, "family": S.MONO}},
+            "bar": {"color": color, "thickness": 0.34},
+            "bgcolor": S.BG_CARD2, "borderwidth": 0,
+            "steps": [
+                {"range": [0, 40], "color": "rgba(0,255,136,0.14)"},
+                {"range": [40, 70], "color": "rgba(255,184,77,0.14)"},
+                {"range": [70, 100], "color": "rgba(255,59,92,0.14)"},
+            ],
+            "threshold": {"line": {"color": color, "width": 3}, "value": val},
+        },
+        domain={"x": [0, 1], "y": [0, 1]},
+    ))
+    fig.update_layout(height=220, paper_bgcolor="rgba(0,0,0,0)",
+                      font=dict(family=S.MONO, color=S.TEXT_MD),
+                      margin=dict(l=24, r=24, t=40, b=6))
     return fig

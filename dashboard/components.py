@@ -208,12 +208,22 @@ def kpi_tile(label: str, value: str, color: str, sublabel: str = "",
             f"<span class='kpi-meter-dot' style='left:{pos:.0f}%;border-color:{vcolor};"
             f"box-shadow:0 0 9px {vcolor};'></span></div>"
             f"<div class='kpi-meter-word' style='color:{vcolor}'>{word}</div></div>")
+    # Tamaño del número según su longitud → SIEMPRE en un solo renglón (se achica si es largo).
+    vlen = len(str(value))
+    if vlen <= 6:
+        vfs = "clamp(19px, 3.8vw, 30px)"
+    elif vlen <= 8:
+        vfs = "clamp(16px, 3.2vw, 25px)"
+    elif vlen <= 11:
+        vfs = "clamp(14px, 2.7vw, 21px)"
+    else:
+        vfs = "clamp(12px, 2.3vw, 18px)"
     st.markdown(
         f"""
         <div class="dlp-kpi">
           <div class="accent" style="background:{vcolor};"></div>
           <div class="kpi-head"><span class="kpi-label">{label}</span>{help_html}</div>
-          <div class="kpi-value" style="color:{vcolor};">{value}</div>
+          <div class="kpi-value" style="color:{vcolor};font-size:{vfs};">{value}</div>
           <div class="kpi-sub">{sublabel}</div>
           {meter_html}
         </div>

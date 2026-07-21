@@ -318,7 +318,8 @@ def inject_css() -> None:
         .dlp-kpi .kpi-label {{ color:{TEXT_SOFT}; font-family:{MONO}; font-size:11.5px; font-weight:700;
             text-transform:uppercase; letter-spacing:.10em; line-height:1.2; flex:1; min-width:0; }}
         .dlp-kpi .kpi-value {{ font-family:{MONO}; font-weight:800; line-height:1.1;
-            font-size:clamp(20px, 4.0vw, 31px); margin:8px 0 2px; overflow-wrap:anywhere; }}
+            font-size:clamp(20px, 4.0vw, 31px); margin:8px 0 2px;
+            white-space:nowrap; overflow:hidden; text-overflow:clip; }}
         .dlp-kpi .kpi-sub {{ color:{TEXT_LO}; font-size:12px; line-height:1.35; }}
         /* Termómetro rojo→verde con marcador + palabra (pinned al fondo → tiles uniformes) */
         .dlp-kpi .kpi-meter {{ margin-top:auto; padding-top:12px; }}

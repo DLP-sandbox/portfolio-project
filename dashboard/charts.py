@@ -146,7 +146,17 @@ def histogram_final(final_values: np.ndarray, bins: int = 60, plain_labels: bool
 
     `plain_labels=True` usa etiquetas en lenguaje simple (para el PDF)."""
     p5, p50, p95 = np.percentile(final_values, [5, 50, 95])
-    counts, edges = np.histogram(final_values, bins=bins)
+    # Encuadre automático: la cola derecha (escenarios extremos) puede llegar a decenas de
+    # millones y aplasta toda la forma en la izquierda. Recortamos el eje a [P1, P97] para que
+    # el cuerpo de la distribución se vea claro y centrado (los outliers >P97 quedan fuera del
+    # marco, no del cálculo). Guardas por si la distribución es degenerada.
+    lo = max(0.0, float(np.percentile(final_values, 1)))
+    hi = float(np.percentile(final_values, 95)) * 1.25   # 25% de aire por encima del P95
+    if hi <= lo:
+        lo, hi = float(np.min(final_values)), float(np.max(final_values))
+    if hi <= lo:
+        hi = lo + 1.0
+    counts, edges = np.histogram(final_values, bins=bins, range=(lo, hi))
     centers = (edges[:-1] + edges[1:]) / 2.0
 
     colors = np.where(centers <= p5, S.RED,
@@ -170,7 +180,8 @@ def histogram_final(final_values: np.ndarray, bins: int = 60, plain_labels: bool
                       annotation_font=dict(color=color, size=12))
 
     _apply_dlp_layout(fig, "Patrimonio final (USD)", "Cantidad de escenarios", height=300)
-    fig.update_xaxes(tickprefix="$", tickformat=",.0f")
+    pad = (hi - lo) * 0.02
+    fig.update_xaxes(tickprefix="$", tickformat="~s", range=[max(0.0, lo - pad), hi + pad])
     fig.update_layout(bargap=0.02, hovermode="x")
     return fig
 

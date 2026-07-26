@@ -8,8 +8,12 @@ headless = true
 
 [theme]
 base = "dark"
-primaryColor = "#FFB84D"
-backgroundColor = "#0A0D11"
-secondaryBackgroundColor = "#141920"
-textColor = "#E0E0E0"
+primaryColor = "#E2B25C"
+backgroundColor = "#0A0B0D"
+secondaryBackgroundColor = "#101216"
+textColor = "#C9CDD3"
 font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = false

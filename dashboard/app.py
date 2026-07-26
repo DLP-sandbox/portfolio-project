@@ -43,7 +43,7 @@ BENCHMARK_SPECS = [("S&P 500 puro", ["SPY"], [100.0]), ("60/40", ["SPY", "BND"],
 # el secret/env FASE2_PASSWORD; si no está, se usa el default de abajo (cambiable).
 FASE2_QUERY_KEYS = ("fase2", "f2")
 DEFAULT_FASE2_PASSWORD = "bienvenidofase2"
-PCOLOR = {"A": S.ORANGE, "B": S.BLUE, "C": S.GOLD}   # C = 3.º color del overlay comparativo
+PCOLOR = {"A": S.ORANGE, "B": S.BLUE, "C": S.PURPLE}  # acento · info · púrpura (categóricos)
 PLABEL = {"A": "Portafolio 1", "B": "Portafolio 2", "C": "Portafolio 3"}
 PIDS = ("A", "B", "C")          # orden fijo de slots
 MAX_PORTFOLIOS = 3

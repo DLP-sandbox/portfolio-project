@@ -7,8 +7,8 @@ Numpy/Streamlit-free y determinista.
 """
 from __future__ import annotations
 
-# Escala de color: rojo (#FF3B5C) → ámbar (#FFB84D) → verde (#00FF88)
-_STOPS = [(0.0, (255, 59, 92)), (0.5, (255, 184, 77)), (1.0, (0, 255, 136))]
+# Escala de color del sistema: --neg (#F1495F) → --accent (#E2B25C) → --pos (#3DD68C)
+_STOPS = [(0.0, (241, 73, 95)), (0.5, (226, 178, 92)), (1.0, (61, 214, 140))]
 
 # Bandas de palabra (umbral superior → palabra). Escala universal de calidad.
 _BANDS = [(0.22, "Malo"), (0.42, "Regular"), (0.62, "Bueno"), (0.82, "Muy bueno"), (1.01, "Excelente")]
@@ -28,7 +28,7 @@ def color_for_pos(pos: float) -> str:
             g = round(c0[1] + (c1[1] - c0[1]) * t)
             b = round(c0[2] + (c1[2] - c0[2]) * t)
             return f"#{r:02X}{g:02X}{b:02X}"
-    return "#00FF88"
+    return "#3DD68C"
 
 
 def word_for_pos(pos: float) -> str:

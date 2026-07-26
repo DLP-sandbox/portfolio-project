@@ -60,7 +60,7 @@ def progress_ring(pct: int, message: str) -> str:
       <div style="width:158px;height:158px;border-radius:50%;
         background:conic-gradient({S.ORANGE} {deg}deg, {S.BG_CARD2} {deg}deg);
         display:flex;align-items:center;justify-content:center;
-        box-shadow:0 0 46px rgba(255,184,77,.28); transition: background .15s linear;">
+        box-shadow:0 4px 14px rgba(0,0,0,.35); transition: background .15s linear;">
         <div style="width:122px;height:122px;border-radius:50%;background:{S.BG_DEEP};
           display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <span style="font-family:{S.MONO};font-size:34px;font-weight:800;color:{S.ORANGE};">{pct}%</span>
@@ -82,7 +82,7 @@ def spinner_ring(message: str) -> str:
         background:conic-gradient({S.ORANGE} 0deg, {S.ORANGE} 270deg, {S.BG_CARD2} 270deg);
         -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 11px), #000 calc(100% - 11px));
         mask:radial-gradient(farthest-side, transparent calc(100% - 11px), #000 calc(100% - 11px));
-        animation: dlpSpin .8s linear infinite; box-shadow:0 0 36px rgba(255,184,77,.5);"></div>
+        animation: dlpSpin .8s linear infinite;"></div>
       <div style="font-family:{S.MONO};text-transform:uppercase;letter-spacing:.14em;
            color:{S.ORANGE};font-size:14px;margin-top:18px;">{message}</div>
     </div>

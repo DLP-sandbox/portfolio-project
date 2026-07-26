@@ -72,18 +72,16 @@ def _add_band(fig: go.Figure, x, lower, upper, fillcolor: str) -> None:
 
 
 def _add_glow_line(fig: go.Figure, x, y, color: str, glow_rgba: tuple[str, str]) -> None:
-    """Línea con glow triple (firma visual DLP)."""
-    # Capa 1: glow exterior
+    """Línea principal con un halo mínimo (sistema CLIENTES: sin neón).
+
+    Se conserva el nombre y la firma por compatibilidad, pero ahora son dos capas
+    discretas en vez del triple glow: el dato manda, el efecto acompaña.
+    """
     fig.add_trace(go.Scatter(x=x, y=y, mode="lines",
-                             line=dict(color=glow_rgba[0], width=24, shape="spline", smoothing=0.5),
+                             line=dict(color=glow_rgba[0], width=9, shape="spline", smoothing=0.5),
                              hoverinfo="skip", showlegend=False))
-    # Capa 2: glow interior
-    fig.add_trace(go.Scatter(x=x, y=y, mode="lines",
-                             line=dict(color=glow_rgba[1], width=12, shape="spline", smoothing=0.5),
-                             hoverinfo="skip", showlegend=False))
-    # Capa 3: línea principal (sin hover propio — el hover unificado va aparte)
     fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name="Mediana",
-                             line=dict(color=color, width=5, shape="spline", smoothing=0.5),
+                             line=dict(color=color, width=2.6, shape="spline", smoothing=0.5),
                              hoverinfo="skip", showlegend=False))
 
 
@@ -99,19 +97,19 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None,
     fig = go.Figure()
 
     # Banda externa P5-P95 (alpha 0.15) y banda interna P25-P75 (alpha 0.30)
-    _add_band(fig, x, percentiles["P5"], percentiles["P95"], "rgba(255,184,77,0.15)")
-    _add_band(fig, x, percentiles["P25"], percentiles["P75"], "rgba(255,184,77,0.30)")
+    _add_band(fig, x, percentiles["P5"], percentiles["P95"], "rgba(226,178,92,0.15)")
+    _add_band(fig, x, percentiles["P25"], percentiles["P75"], "rgba(226,178,92,0.30)")
 
     # Línea "Aportado" (gris): capital + aportes acumulados, sin rendimiento.
     if initial_capital is not None and monthly_contribution is not None:
         aportado = np.clip(initial_capital + monthly_contribution * np.arange(n_months + 1), 0.0, None)
         fig.add_trace(go.Scatter(x=x, y=aportado, mode="lines", name="Aportado",
-                                 line=dict(color="#8A97A8", width=2, dash="dot"),
+                                 line=dict(color="#5E6570", width=2, dash="dot"),
                                  hovertemplate="<b>Aportado</b>: $%{y:,.0f}<extra></extra>"))
 
     # Mediana con glow triple
     _add_glow_line(fig, x, percentiles["P50"], S.ORANGE,
-                   ("rgba(255,184,77,0.18)", "rgba(255,184,77,0.35)"))
+                   ("rgba(226,178,92,0.18)", "rgba(226,178,92,0.35)"))
 
     # Trazas invisibles para hover unificado (mín / invertido / máx).
     for name, key, col in [("Pesimista (P5)", "P5", S.RED),
@@ -134,7 +132,7 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None,
     fig.update_yaxes(tickprefix="$", tickformat=",.0f")
     # Línea guía vertical + año formateado para leer el abanico con el cursor
     fig.update_xaxes(hoverformat=".1f", showspikes=True, spikemode="across",
-                     spikethickness=1, spikedash="dot", spikecolor="rgba(255,184,77,0.55)")
+                     spikethickness=1, spikedash="dot", spikecolor="rgba(226,178,92,0.55)")
     fig.update_layout(hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
                                       font=dict(family=S.MONO, color=S.TEXT_HI)))
     return fig
@@ -169,9 +167,9 @@ def histogram_final(final_values: np.ndarray, bins: int = 60, plain_labels: bool
     ))
     # Contorno con glow (firma DLP): traza la silueta de la distribución con brillo dorado.
     fig.add_trace(go.Scatter(x=centers, y=counts, mode="lines", hoverinfo="skip", showlegend=False,
-                             line=dict(color="rgba(255,184,77,0.16)", width=10, shape="spline", smoothing=0.6)))
+                             line=dict(color="rgba(226,178,92,0.16)", width=10, shape="spline", smoothing=0.6)))
     fig.add_trace(go.Scatter(x=centers, y=counts, mode="lines", hoverinfo="skip", showlegend=False,
-                             line=dict(color="rgba(255,215,64,0.9)", width=2.2, shape="spline", smoothing=0.6)))
+                             line=dict(color="rgba(240,200,120,0.9)", width=2.2, shape="spline", smoothing=0.6)))
 
     lbl = (["Peor 5%", "Típico", "Mejor 5%"] if plain_labels else ["P5", "Mediana", "P95"])
     for value, color, label in [(p5, S.RED, lbl[0]), (p50, S.ORANGE, lbl[1]), (p95, S.GREEN, lbl[2])]:
@@ -202,9 +200,9 @@ def success_gauge(prob: float, target_label: str = "") -> go.Figure:
             "bgcolor": S.BG_CARD2,
             "borderwidth": 0,
             "steps": [
-                {"range": [0, 50], "color": "rgba(255,59,92,0.12)"},
-                {"range": [50, 70], "color": "rgba(255,184,77,0.12)"},
-                {"range": [70, 100], "color": "rgba(0,255,136,0.12)"},
+                {"range": [0, 50], "color": "rgba(241,73,95,0.12)"},
+                {"range": [50, 70], "color": "rgba(226,178,92,0.12)"},
+                {"range": [70, 100], "color": "rgba(61,214,140,0.12)"},
             ],
             "threshold": {"line": {"color": color, "width": 3}, "value": pct},
         },
@@ -221,10 +219,10 @@ def success_gauge(prob: float, target_label: str = "") -> go.Figure:
 
 # (color principal, (glow exterior, glow interior), fill de banda) por escenario
 _COMPARE_STYLES = [
-    (S.ORANGE, ("rgba(255,184,77,0.16)", "rgba(255,184,77,0.32)"), "rgba(255,184,77,0.08)"),
-    (S.BLUE, ("rgba(74,158,255,0.16)", "rgba(74,158,255,0.32)"), "rgba(74,158,255,0.08)"),
-    (S.GOLD, ("rgba(255,215,64,0.16)", "rgba(255,215,64,0.32)"), "rgba(255,215,64,0.08)"),
-    (S.GREEN, ("rgba(0,255,136,0.14)", "rgba(0,255,136,0.30)"), "rgba(0,255,136,0.07)"),
+    (S.ORANGE, ("rgba(226,178,92,0.16)", "rgba(226,178,92,0.32)"), "rgba(226,178,92,0.08)"),
+    (S.BLUE, ("rgba(111,163,224,0.16)", "rgba(111,163,224,0.32)"), "rgba(111,163,224,0.08)"),
+    (S.PURPLE, ("rgba(157,140,224,0.16)", "rgba(157,140,224,0.32)"), "rgba(157,140,224,0.08)"),
+    (S.GREEN, ("rgba(61,214,140,0.14)", "rgba(61,214,140,0.30)"), "rgba(61,214,140,0.07)"),
 ]
 
 
@@ -272,7 +270,7 @@ def comparison_fan_chart(scenarios: list[dict], n_months: int, target: float | N
 
 
 # Colores distintos por slice del portafolio (el primero es el brand)
-DONUT_COLORS = [S.ORANGE, S.BLUE, S.GREEN, S.GOLD, "#B388FF", "#21D4C0", "#FF6FB5", S.TEXT_LO]
+DONUT_COLORS = [S.ORANGE, S.BLUE, S.PURPLE, S.GREEN, S.GOLD, S.TEXT_LO, S.RED, S.ORANGE_DK]
 
 
 def allocation_donut(items: list[dict], lead_color: str | None = None) -> go.Figure:
@@ -361,9 +359,9 @@ def ruin_gauge(prob_ruin: float) -> go.Figure:
             "bar": {"color": color, "thickness": 0.32},
             "bgcolor": S.BG_CARD2, "borderwidth": 0,
             "steps": [
-                {"range": [0, 5], "color": "rgba(0,255,136,0.12)"},
-                {"range": [5, 20], "color": "rgba(255,184,77,0.12)"},
-                {"range": [20, 100], "color": "rgba(255,59,92,0.12)"},
+                {"range": [0, 5], "color": "rgba(61,214,140,0.12)"},
+                {"range": [5, 20], "color": "rgba(226,178,92,0.12)"},
+                {"range": [20, 100], "color": "rgba(241,73,95,0.12)"},
             ],
             "threshold": {"line": {"color": color, "width": 3}, "value": pct},
         },
@@ -390,7 +388,7 @@ def risk_vs_weight_bar(assets: list[dict], max_rows: int = 8) -> go.Figure:
     # Paleta sobria y clara: azul acero = peso, naranja de marca = riesgo (dos series limpias).
     fig = go.Figure()
     fig.add_trace(go.Bar(y=syms, x=wt, orientation="h", name="Peso",
-                         marker=dict(color="#5B7794", line=dict(color="rgba(255,255,255,.16)", width=1)),
+                         marker=dict(color=S.TEXT_LO, line=dict(color="rgba(255,255,255,.16)", width=1)),
                          hovertemplate="%{y} · Peso: %{x:.0f}%<extra></extra>"))
     fig.add_trace(go.Bar(y=syms, x=rc, orientation="h", name="Riesgo",
                          marker=dict(color=S.ORANGE, line=dict(color="rgba(255,255,255,.22)", width=1)),
@@ -421,9 +419,9 @@ def diversification_meter(avg_corr: float) -> go.Figure:
             "bar": {"color": color, "thickness": 0.34},
             "bgcolor": S.BG_CARD2, "borderwidth": 0,
             "steps": [
-                {"range": [0, 40], "color": "rgba(0,255,136,0.14)"},
-                {"range": [40, 70], "color": "rgba(255,184,77,0.14)"},
-                {"range": [70, 100], "color": "rgba(255,59,92,0.14)"},
+                {"range": [0, 40], "color": "rgba(61,214,140,0.14)"},
+                {"range": [40, 70], "color": "rgba(226,178,92,0.14)"},
+                {"range": [70, 100], "color": "rgba(241,73,95,0.14)"},
             ],
             "threshold": {"line": {"color": color, "width": 3}, "value": val},
         },

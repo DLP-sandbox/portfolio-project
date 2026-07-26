@@ -43,8 +43,10 @@ BENCHMARK_SPECS = [("S&P 500 puro", ["SPY"], [100.0]), ("60/40", ["SPY", "BND"],
 # el secret/env FASE2_PASSWORD; si no está, se usa el default de abajo (cambiable).
 FASE2_QUERY_KEYS = ("fase2", "f2")
 DEFAULT_FASE2_PASSWORD = "bienvenidofase2"
-PCOLOR = {"A": S.ORANGE, "B": S.BLUE}
-PLABEL = {"A": "Portafolio 1", "B": "Portafolio 2"}
+PCOLOR = {"A": S.ORANGE, "B": S.BLUE, "C": S.GOLD}   # C = 3.º color del overlay comparativo
+PLABEL = {"A": "Portafolio 1", "B": "Portafolio 2", "C": "Portafolio 3"}
+PIDS = ("A", "B", "C")          # orden fijo de slots
+MAX_PORTFOLIOS = 3
 
 
 # ── Password gate (Patrón 1) ─────────────────────────────────────────────────
@@ -199,9 +201,29 @@ def _build_extras(inputs: dict, result: dict) -> dict:
     return extras
 
 
-# ── Estado de portafolios (A siempre; B opcional) ────────────────────────────
+# ── Estado de portafolios: ÚNICA fuente de verdad (slots A/B/C, máximo 3) ────
+# Todo método de entrada (manual o archivo) llena estos slots; el botón "Analizar"
+# corre el MISMO pipeline sobre ellos. Así el análisis nunca depende del método.
 def _init_portfolios() -> None:
     st.session_state.setdefault("portfolios", {"A": [dict(x) for x in DEFAULT_A]})
+    st.session_state.setdefault("portfolio_names", {})
+
+
+def _active_pids() -> list[str]:
+    """Slots con portafolio, en orden fijo A→B→C."""
+    pfs = st.session_state.get("portfolios", {})
+    return [p for p in PIDS if p in pfs]
+
+
+def _pname(pid: str) -> str:
+    """Nombre visible del portafolio: el del archivo si lo hay, si no 'Portafolio N'."""
+    return (st.session_state.get("portfolio_names", {}) or {}).get(pid) or PLABEL.get(pid, pid)
+
+
+def _free_pid() -> str | None:
+    """Primer slot libre (o None si ya hay 3)."""
+    pfs = st.session_state.get("portfolios", {})
+    return next((p for p in PIDS if p not in pfs), None)
 
 
 def set_portfolio(pid: str, symbols: list[str], weights: list[float]) -> None:
@@ -315,20 +337,20 @@ def render_portfolio_builder(pid: str, capital: float) -> tuple[list[str], list[
     return symbols, weights, sum(max(w, 0) for w in weights)
 
 
-# ── Importar portafolios candidatos desde CSV ────────────────────────────────
-def _load_candidate_into(pid: str, cand: dict) -> None:
-    """Carga un candidato importado en el slot A o B usando el modelo existente."""
+# ── Subir portafolios desde archivo (CSV/Excel) ──────────────────────────────
+def _load_portfolio_into(pid: str, cand: dict) -> None:
+    """Carga un portafolio parseado en un slot, conservando su nombre del archivo."""
     symbols = [it["symbol"] for it in cand["items"]]
     weights = [float(it["weight"]) for it in cand["items"]]
     set_portfolio(pid, symbols, weights)
+    st.session_state.setdefault("portfolio_names", {})[pid] = cand.get("name") or PLABEL[pid]
 
 
-def render_candidate_importer(capital: float, aporte: float, horizonte: int, meta: float) -> None:
-    """Expander para importar portafolios candidatos desde un CSV (formato DLP).
+def render_candidate_importer() -> None:
+    """Sube un archivo (CSV/Excel) y CARGA sus portafolios en los slots visibles.
 
-    Reusa el flujo ya probado: cada candidato se puede cargar en A o en B con un clic,
-    y hay un botón para comparar TODOS los candidatos de una vez (ranking + overlay).
-    Es aditivo: no toca la lógica de simulación ni la vista A/B.
+    No tiene botón propio de análisis: los portafolios quedan arriba y se analizan con el
+    botón principal "Analizar" — el mismo pipeline que el armado manual.
     """
     with st.expander("☁  Subir portafolio con archivo"):
         st.markdown(
@@ -341,43 +363,42 @@ def render_candidate_importer(capital: float, aporte: float, horizonte: int, met
         up = st.file_uploader(
             "Subir portafolios a analizar", type=None, key="cand_csv", label_visibility="collapsed",
             help="Formatos: CSV o Excel (.xlsx). El diálogo abre en 'todos los archivos'.")
-        if up is not None:
+        if up is None:
+            st.session_state.pop("_loaded_file", None)
+            return
+
+        # Guard: cargar solo cuando el archivo cambia (si no, pisaría ediciones en cada rerun).
+        stamp = f"{getattr(up, 'file_id', '')}|{up.name}|{up.size}"
+        if st.session_state.get("_loaded_file") != stamp:
             try:
-                st.session_state["cand_ports"] = portfolio_import.parse_portfolios(up.name, up.getvalue())
+                cands = portfolio_import.parse_portfolios(up.name, up.getvalue())
             except Exception as e:
+                st.session_state["_loaded_file"] = stamp
                 st.session_state.pop("cand_ports", None)
                 st.error(f"No se pudo leer el archivo: {e}")
+                return
+            # Reemplaza los slots: lo que ves arriba es exactamente lo que se analizará.
+            st.session_state["portfolios"] = {}
+            st.session_state["portfolio_names"] = {}
+            for pid, cand in zip(PIDS, cands[:MAX_PORTFOLIOS]):
+                _load_portfolio_into(pid, cand)
+            st.session_state["cand_ports"] = cands
+            st.session_state["_loaded_file"] = stamp
+            st.rerun()
 
         cands = st.session_state.get("cand_ports") or []
         if not cands:
             return
-        n = len(cands)
-        st.markdown(f"<div class='dlp-side-title'>{n} portafolio{'s' if n != 1 else ''} "
-                    f"importado{'s' if n != 1 else ''}</div>", unsafe_allow_html=True)
-        for idx, cand in enumerate(cands):
+        n = min(len(cands), MAX_PORTFOLIOS)
+        st.success(f"✓ {n} portafolio{'s' if n != 1 else ''} cargado{'s' if n != 1 else ''} arriba. "
+                   f"Pulsa **Analizar** para ver el análisis completo.")
+        for cand in cands[:MAX_PORTFOLIOS]:
             compo = " · ".join(f"{round(it['weight'])}% {it['symbol']}" for it in cand["items"][:4])
             more = " …" if len(cand["items"]) > 4 else ""
-            cc1, cc2, cc3 = st.columns([3.2, 1, 1])
-            cc1.markdown(
-                f"<div style='padding-top:6px'><b style='color:{S.TEXT_HI};font-size:14px'>{cand['name']}</b><br>"
-                f"<span style='color:{S.TEXT_LO};font-size:11px'>{len(cand['items'])} activos · {compo}{more}</span></div>",
-                unsafe_allow_html=True)
-            if cc2.button("→ A", key=f"cand_a_{idx}", use_container_width=True):
-                _load_candidate_into("A", cand)
-                st.rerun()
-            if cc3.button("→ B", key=f"cand_b_{idx}", use_container_width=True):
-                st.session_state.portfolios.setdefault("B", [])
-                _load_candidate_into("B", cand)
-                st.rerun()
-        # Botón adaptativo: funciona con 1, 2 o 3 portafolios.
-        btn_label = "◈  Analizar el portafolio" if n == 1 else f"◈  Analizar los {n} portafolios"
-        if st.button(btn_label, key="cand_compare_btn", use_container_width=True, type="primary"):
-            st.session_state["_run_cands"] = {
-                "initial_capital": capital, "monthly_contribution": aporte,
-                "horizon_years": int(horizonte), "target": (meta if meta > 0 else None),
-                "candidates": cands}
-            st.session_state["result_A"] = None   # oculta la vista A/B para no encimar
-            st.session_state["result_B"] = None
+            st.markdown(
+                f"<div style='padding:3px 0'><b style='color:{S.TEXT_HI};font-size:13.5px'>{cand['name']}</b> "
+                f"<span style='color:{S.TEXT_LO};font-size:11px'>· {len(cand['items'])} activos · "
+                f"{compo}{more}</span></div>", unsafe_allow_html=True)
 
 
 # ── Inputs (plan compartido + A/B + avanzadas) ───────────────────────────────
@@ -404,53 +425,51 @@ def render_inputs() -> dict | None:
             meta = num_input("Meta final (USD, opcional)", 0, "meta", min_value=0,
                              help="Opcional: el patrimonio que te gustaría alcanzar. Verás la probabilidad de lograrlo.")
 
-    has_b = "B" in st.session_state.portfolios
-    symB: list[str] | None = None
-    wB: list[float] = []
-    twB = 0.0
+    pids = _active_pids()
+    built: dict[str, tuple[list[str], list[float], float]] = {}
     with components.card("portafolio"):
-        if not has_b:
+        if len(pids) == 1:
             components.card_head("◆", "Tu portafolio", "Busca y agrega activos")
-            symA, wA, twA = render_portfolio_builder("A", capital)
+            built[pids[0]] = render_portfolio_builder(pids[0], capital)
         else:
-            components.card_head("◆", "Compara dos portafolios", "Edita ambos; se analizan los dos")
-            tA, tB = st.tabs([f"  {PLABEL['A']}  ", f"  {PLABEL['B']}  "])
-            with tA:
-                symA, wA, twA = render_portfolio_builder("A", capital)
-            with tB:
-                if st.button("✕  Quitar este portafolio", key="rmb"):
-                    del st.session_state.portfolios["B"]
-                    st.rerun()
-                symB, wB, twB = render_portfolio_builder("B", capital)
+            components.card_head("◆", f"Compara {len(pids)} portafolios",
+                                 "Edítalos; se analizan todos")
+            tabs = st.tabs([f"  {_pname(p)}  " for p in pids])
+            for tab, pid in zip(tabs, pids):
+                with tab:
+                    if st.button("✕  Quitar este portafolio", key=f"rm_pf_{pid}"):
+                        st.session_state.portfolios.pop(pid, None)
+                        st.session_state.get("portfolio_names", {}).pop(pid, None)
+                        st.rerun()
+                    built[pid] = render_portfolio_builder(pid, capital)
 
-    if not has_b:
+    if len(pids) < MAX_PORTFOLIOS:
         with st.container(key="addb"):
             if st.button("＋  Añadir nuevo portafolio", use_container_width=True):
-                st.session_state.portfolios["B"] = [dict(x) for x in DEFAULT_B]
-                st.rerun()
-
-    a_ready = bool(symA) and twA > 0
-    b_ready = (not has_b) or (bool(symB) and twB > 0)
+                slot = _free_pid()
+                if slot:
+                    st.session_state.portfolios[slot] = [dict(x) for x in DEFAULT_B]
+                    st.rerun()
 
     # Defaults de avanzadas
     dist_label, fees, tax = "Normal", 0.0, 0.0
     compare = retirement = show_stress = show_sequence = False
     withdrawal = 1_500.0
 
-    if not (a_ready and b_ready):
-        msg = ("Agrega un activo al Portafolio A para proyectar" if not a_ready
-               else "Agrega un activo al Portafolio B (o quítalo) para proyectar")
-        st.button(f"🔒  {msg}", type="primary", use_container_width=True, disabled=True)
+    not_ready = [p for p in pids if not (built[p][0] and built[p][2] > 0)]
+    if not_ready:
+        st.button(f"🔒  Agrega un activo a {_pname(not_ready[0])} para analizar",
+                  type="primary", use_container_width=True, disabled=True)
         return None
 
-    # Botón principal "Analizar" arriba; "Opciones avanzadas" como expander DEBAJO.
+    # Botón principal ÚNICO "Analizar"; "Opciones avanzadas" como expander DEBAJO.
     # (Los widgets del expander se ejecutan antes del gate `if not clicked`, así que sus
     #  valores locales quedan listos al construir el spec — sin session_state extra.)
-    label = "◈  Analizar los dos portafolios" if has_b else "◈  Analizar"
+    label = "◈  Analizar" if len(pids) == 1 else f"◈  Analizar los {len(pids)} portafolios"
     clicked = st.button(label, type="primary", use_container_width=True)
 
     # "Subir portafolio con archivo" — entre Analizar y Opciones avanzadas.
-    render_candidate_importer(capital, aporte, int(horizonte), meta)
+    render_candidate_importer()
 
     with st.expander("Opciones avanzadas"):
         dist_label = st.radio("Modelo de retornos", ["Normal", "t-Student (colas gordas)"],
@@ -498,11 +517,12 @@ def render_inputs() -> dict | None:
         "compare": compare, "show_stress": show_stress, "show_sequence": show_sequence,
         "random_seed": random.randrange(1_000_000_000),  # mismo seed A y B (comparación justa)
     }
-    return {
-        "base": base,
-        "A": {"tickers": symA, "weights": [w / twA for w in wA]},
-        "B": ({"tickers": symB, "weights": [w / twB for w in wB]} if has_b else None),
-    }
+    portfolios = []
+    for pid in pids:
+        syms, ws, tw = built[pid]
+        portfolios.append({"pid": pid, "name": _pname(pid), "tickers": syms,
+                           "weights": [w / tw for w in ws]})
+    return {"base": base, "portfolios": portfolios}
 
 
 # ── Helpers de render ────────────────────────────────────────────────────────
@@ -823,21 +843,21 @@ def _compare_verdict(rA, iA, rB) -> tuple[str, str]:
     m_high, m_low = (medA, medB) if high == "A" else (medB, medA)
     dd_low_val = min(ddA, ddB)
     dd_high_val = max(ddA, ddB)
-    parts = [f"En la mediana, el {_b(PLABEL[high], hcol)} proyecta más "
+    parts = [f"En la mediana, el {_b(_pname(high), hcol)} proyecta más "
              f"({components.fmt_money(m_high)} vs {components.fmt_money(m_low)})."]
     if low_dd == high:
         parts.append(f"Y además es el más estable (caída típica {dd_low_val:.0f}% vs {dd_high_val:.0f}%): "
                      f"luce mejor en crecimiento y en estabilidad — aunque no es garantía.")
         lead = hcol
     else:
-        parts.append(f"Pero el {_b(PLABEL[low_dd], lcol)} es más estable (caída típica menor: "
+        parts.append(f"Pero el {_b(_pname(low_dd), lcol)} es más estable (caída típica menor: "
                      f"{dd_low_val:.0f}% vs {dd_high_val:.0f}%). Es un trade-off entre crecimiento y "
                      f"estabilidad: depende de tu tolerancia al riesgo.")
         lead = S.GOLD
     if iA.get("target"):
         pA, pB = (rA["prob_target"] or 0) * 100, (rB["prob_target"] or 0) * 100
         bp, bpcol = ("A", S.ORANGE) if pA >= pB else ("B", S.BLUE)
-        parts.append(f"Para tu meta, el {_b(PLABEL[bp], bpcol)} tiene mayor probabilidad de alcanzarla "
+        parts.append(f"Para tu meta, el {_b(_pname(bp), bpcol)} tiene mayor probabilidad de alcanzarla "
                      f"({max(pA, pB):.0f}% vs {min(pA, pB):.0f}%).")
     return " ".join(parts), lead
 
@@ -851,7 +871,7 @@ def _compo(inputs) -> str:
 
 def _side_head(pid: str, med: float, compo: str) -> str:
     col = PCOLOR[pid]
-    return (f"<div class='dlp-side'><div class='nm' style='color:{col}'>{PLABEL[pid]}</div>"
+    return (f"<div class='dlp-side'><div class='nm' style='color:{col}'>{_pname(pid)}</div>"
             f"<div class='big' style='color:{col}'>{components.fmt_money(med)}</div>"
             f"<div class='sub'>mediana · {compo}</div></div>")
 
@@ -986,48 +1006,7 @@ def _render_pdf_button(result, inputs, benchmarks) -> None:
             st.rerun()
 
 
-# ── Comparación de candidatos importados (N portafolios) ─────────────────────
-def _compute_candidates(spec: dict) -> None:
-    """Corre la simulación de cada candidato importado y guarda resultados en sesión.
-
-    Mismo seed para todos → comparación justa. Cada compute() libera su matriz de paths
-    (fix de memoria previo), así que correr varios en secuencia es seguro.
-    """
-    seed = random.randrange(1_000_000_000)
-    cands = spec["candidates"][:3]   # máximo 3 portafolios
-    n = len(cands)
-    results: list[dict] = []
-    loader = st.empty()               # mismo overlay a pantalla completa que la corrida A/B
-    for j, cand in enumerate(cands):
-        loader.markdown(components.progress_overlay(
-            round(j / max(n, 1) * 100),
-            f"Analizando portafolio {j + 1} de {n}…"), unsafe_allow_html=True)
-        syms = [it["symbol"] for it in cand["items"]]
-        wts = [max(float(it["weight"]), 0.0) for it in cand["items"]]
-        tot = sum(wts) or 1.0
-        inputs = {
-            "initial_capital": spec["initial_capital"],
-            "monthly_contribution": spec["monthly_contribution"],
-            "horizon_years": spec["horizon_years"], "target": spec["target"],
-            "historical_window_years": 10, "n_simulations": 10_000,
-            "distribution": "normal", "annual_fees_pct": 0.0,
-            "annual_tax_on_gains_pct": 0.0, "random_seed": seed,
-            "tickers": syms, "weights": [w / tot for w in wts],
-        }
-        try:
-            res = compute(inputs)
-        except Exception:
-            res = None
-        # Guardamos la composición (activos + pesos + nombres) para mostrarla luego.
-        # Es una lista chica de strings/números: no impacta la memoria.
-        results.append({"name": cand["name"], "inputs": inputs, "result": res,
-                        "items": [dict(it) for it in cand["items"]]})
-    loader.markdown(components.progress_overlay(100, "Armando el análisis…"), unsafe_allow_html=True)
-    loader.empty()
-    st.session_state["cand_results"] = results
-    st.session_state["cand_plan"] = {"horizon_years": spec["horizon_years"], "target": spec["target"]}
-
-
+# ── Comparación de 3 portafolios (ranking + análisis completo de cada uno) ───
 def _cand_metric_rows(results: list[dict], target: float | None) -> list[dict]:
     rows = []
     for r in results:
@@ -1096,38 +1075,19 @@ def _candidate_composition_html(items: list[dict]) -> str:
     return html
 
 
-def render_candidate_results() -> None:
-    """Muestra el ranking + veredicto + overlay de los candidatos importados."""
-    all_results = st.session_state.get("cand_results") or []
-    results = [r for r in all_results if r["result"] is not None]
-    failed = [r["name"] for r in all_results if r["result"] is None]
+def render_multi(runs: list[dict], benchmarks=None, elapsed=None) -> None:
+    """Comparación de 3 portafolios: ranking + overlay + ANÁLISIS COMPLETO de cada uno.
+
+    Recibe los `runs` del pipeline único (mismos inputs/extras que el modo de 1 o 2), así
+    que el análisis por portafolio es idéntico al del flujo principal.
+    """
+    results = [r for r in runs if r.get("result") is not None]
     if not results:
-        st.divider()
-        st.error("No se pudo simular ningún candidato. Revisa que los tickers del CSV existan en el mercado.")
+        st.error("No se pudo analizar ningún portafolio. Revisa que los tickers existan en el mercado.")
         return
 
-    plan = st.session_state.get("cand_plan", {})
-    target = plan.get("target")
-    years = plan.get("horizon_years", results[0]["result"]["months"] // 12)
-
-    st.divider()
-    if failed:
-        st.warning("No se pudieron simular (tickers no encontrados): " + ", ".join(failed))
-
-    # Un solo portafolio → vista de análisis completa (sin ranking/comparación).
-    if len(results) == 1:
-        r0 = results[0]
-        components.hero_card(
-            glyph="◈", caption=f"Análisis · {r0['name']}",
-            meta_items=[("Capital inicial", components.fmt_money(r0["inputs"]["initial_capital"])),
-                        ("Aporte mensual", components.fmt_money(abs(r0["inputs"]["monthly_contribution"]))),
-                        ("Horizonte", f"{years} años")],
-            highlight_label=f"Mediana a {years} años",
-            highlight_value=components.fmt_money(float(np.percentile(r0["result"]["final_values"], 50))),
-            highlight_color=S.ORANGE)
-        render_single(r0["result"], r0["inputs"], {}, None, "cand1",
-                      with_hero=False, with_actions=True)
-        return
+    target = results[0]["inputs"].get("target")
+    years = results[0]["inputs"]["horizon_years"]
 
     components.disclaimer_banner()
     rows = _cand_metric_rows(results, target)
@@ -1135,8 +1095,8 @@ def render_candidate_results() -> None:
     safest = min(rows, key=lambda x: x["dd"])
 
     with components.card("cand-verdict"):
-        components.card_head("◆", "El mejor candidato", "según la proyección")
-        v = (f"El candidato {_b(best['name'], S.ORANGE)} proyecta la mayor mediana a "
+        components.card_head("◆", "El mejor portafolio", "según la proyección")
+        v = (f"El portafolio {_b(best['name'], S.ORANGE)} proyecta la mayor mediana a "
              f"{_b(str(years) + ' años')}: {_b(components.fmt_money(best['p50']), S.ORANGE)}. ")
         if safest["name"] == best["name"]:
             v += ("Y además es el más estable (menor caída típica): destaca tanto en crecimiento "
@@ -1152,19 +1112,19 @@ def render_candidate_results() -> None:
         components.verdict_card(S.GOLD, _md_money(v))
 
     with components.card("cand-board"):
-        components.card_head("◆", "Ranking de candidatos", "◆ = mejor en cada métrica")
+        components.card_head("◆", "Ranking de portafolios", "◆ = mejor en cada métrica")
         st.markdown(_candidates_table(rows, target, best["name"]), unsafe_allow_html=True)
         st.caption("Ordenados por mediana proyectada. 'Caída típica' y 'Eficiencia (Sharpe)' miden "
                    "el riesgo: menos caída y más Sharpe es mejor.")
 
     with components.card("cand-fan"):
-        components.card_head("◆", "Proyección comparada", "mediana + rango P5–P95 de cada candidato")
+        components.card_head("◆", "Proyección comparada", "mediana + rango P5–P95 de cada portafolio")
         scen = [{"label": r["name"], "percentiles": r["result"]["percentiles"]} for r in rows]
         st.plotly_chart(charts.comparison_fan_chart(scen, results[0]["result"]["months"], target),
                         use_container_width=True, config={"displayModeBar": False}, key="cand_fan_chart")
 
     with components.card("cand-compo"):
-        components.card_head("◆", "Composición de cada candidato", "qué activos tiene y con qué peso")
+        components.card_head("◆", "Composición de cada portafolio", "qué activos tiene y con qué peso")
         for idx, r in enumerate(sorted(rows, key=lambda x: -x["p50"])):
             items = r["items"]
             is_best = r["name"] == best["name"]
@@ -1184,31 +1144,21 @@ def render_candidate_results() -> None:
             if idx < len(rows) - 1:
                 st.divider()
 
-    # Hallazgos + "de dónde viene el riesgo" por candidato (mismo motor que el modo único)
-    with components.card("cand-analysis"):
-        components.card_head("◆", "Análisis por candidato", "hallazgos clave + de dónde viene el riesgo")
-        for idx, r in enumerate(sorted(rows, key=lambda x: -x["p50"])):
-            analysis = r["result"].get("analysis")
-            is_best = r["name"] == best["name"]
-            nmcol = S.ORANGE if is_best else S.TEXT_HI
-            st.markdown(
-                f"<div style='margin:8px 0 6px;'><b style='color:{nmcol};font-family:{S.MONO};"
-                f"font-size:15px;letter-spacing:.04em;'>{r['name']}</b></div>",
-                unsafe_allow_html=True)
-            if not analysis:
-                st.caption("Análisis no disponible para este candidato.")
-            else:
-                for fd in analysis["findings"][:4]:
-                    components.finding_card(fd)
-                if len(analysis["structure"]["assets"]) >= 2:
-                    st.plotly_chart(charts.risk_vs_weight_bar(analysis["structure"]["assets"]),
-                                    use_container_width=True, config={"displayModeBar": False},
-                                    key=f"cand_rvw_{idx}")
-            if idx < len(rows) - 1:
-                st.divider()
+    # ANÁLISIS COMPLETO de cada portafolio (mismas pestañas que el modo de 1 portafolio).
+    st.markdown("<div class='dlp-side-title' style='margin-top:18px'>Análisis completo de cada "
+                "portafolio</div>", unsafe_allow_html=True)
+    tabs = st.tabs([f"  {r['name'][:22]}  " for r in results])
+    for i, (tab, r) in enumerate(zip(tabs, results)):
+        with tab:
+            render_single(r["result"], r["inputs"], r.get("extras") or {}, benchmarks,
+                          f"m{i}", with_hero=False, with_actions=False)
 
-    st.caption("◇ Consejo: usa los botones → A / → B del importador para analizar un candidato en "
-               "profundidad (histograma, stress test, PDF, etc.).")
+    st.divider()
+    _render_pdf_button(results[0]["result"], results[0]["inputs"], benchmarks)
+    if elapsed is not None:
+        dist = "t-Student" if results[0]["inputs"]["distribution"] == "t-student" else "Normal"
+        st.caption(f"◇ {len(results)} portafolios × {results[0]['inputs']['n_simulations']:,} escenarios · "
+                   f"{dist} · {elapsed:.1f}s · ventana {results[0]['inputs']['historical_window_years']} años")
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -1250,22 +1200,14 @@ def main() -> None:
     spec = render_inputs()
     just_computed = False
 
-    # Comparación de candidatos importados (flujo independiente del A/B) — ya usa su overlay.
-    run_cands = st.session_state.pop("_run_cands", None)
-    if run_cands is not None:
-        _compute_candidates(run_cands)
-        just_computed = True
-
     if spec is not None:
-        st.session_state["cand_results"] = None   # una corrida A/B oculta la de candidatos
         base = spec["base"]
-        inputs_A = dict(base, **spec["A"])
-        inputs_B = dict(base, **spec["B"]) if spec["B"] else None
+        runs_spec = spec["portfolios"]
 
         # UN SOLO overlay a pantalla completa, continuo desde el clic: validar → simular.
         loader = st.empty()
         loader.markdown(components.progress_overlay(0, "Validando tickers…"), unsafe_allow_html=True)
-        all_syms = list(dict.fromkeys(inputs_A["tickers"] + (inputs_B["tickers"] if inputs_B else [])))
+        all_syms = list(dict.fromkeys([t for p in runs_spec for t in p["tickers"]]))
         _, invalid = market_data.validate_tickers(all_syms)
         if invalid:
             loader.empty()
@@ -1273,12 +1215,20 @@ def main() -> None:
         else:
             target = random.uniform(9.0, 15.0)
             t0 = time.perf_counter()
-            loader.markdown(components.progress_overlay(4, "Preparando tu análisis…"), unsafe_allow_html=True)
-            result_A = compute(inputs_A)
-            result_B = compute(inputs_B) if inputs_B else None
-            benchmarks = run_benchmarks(inputs_A) if base["compare"] else None
-            extras_A = _build_extras(inputs_A, result_A)
-            extras_B = _build_extras(inputs_B, result_B) if inputs_B else None
+            # PIPELINE ÚNICO: mismo `base` (Opciones avanzadas incluidas) + extras para TODOS
+            # los portafolios, vengan del armador manual o de un archivo.
+            runs: list[dict] = []
+            n = len(runs_spec)
+            for i, p in enumerate(runs_spec):
+                loader.markdown(components.progress_overlay(
+                    4 + round(i / max(n, 1) * 40),
+                    f"Analizando {p['name']}…" if n > 1 else "Preparando tu análisis…"),
+                    unsafe_allow_html=True)
+                inputs = dict(base, tickers=p["tickers"], weights=p["weights"])
+                result = compute(inputs)
+                runs.append({"pid": p["pid"], "name": p["name"], "inputs": inputs,
+                             "result": result, "extras": _build_extras(inputs, result)})
+            benchmarks = run_benchmarks(runs[0]["inputs"]) if base["compare"] else None
             remaining = max(target - (time.perf_counter() - t0), 3.0)
             steps = max(int(remaining / 0.09), 24)
             for i in range(steps + 1):
@@ -1287,28 +1237,27 @@ def main() -> None:
                 time.sleep(remaining / steps)
             loader.empty()
             st.session_state.update(
-                inputs_A=inputs_A, result_A=result_A, extras_A=extras_A,
-                inputs_B=inputs_B, result_B=result_B, extras_B=extras_B, benchmarks=benchmarks,
-                elapsed=time.perf_counter() - t0,
+                runs=runs, benchmarks=benchmarks, elapsed=time.perf_counter() - t0,
                 pdf_bytes=None, _pdf_loading=False, _pdf_just=False)  # PDF se genera al click
             just_computed = True
 
     # Ancla para bajar automáticamente a los resultados al terminar de cargar.
     st.markdown("<div id='dlp-results-anchor' style='scroll-margin-top:6px'></div>", unsafe_allow_html=True)
 
-    if st.session_state.get("result_A") is not None:
+    runs = st.session_state.get("runs") or []
+    if runs:
+        bench = st.session_state.get("benchmarks")
+        elapsed = st.session_state.get("elapsed")
         with st.container(key="results-capsule"):   # cápsula metálica que encierra los resultados
-            if st.session_state.get("result_B") is not None:
-                render_compare(st.session_state.result_A, st.session_state.inputs_A, st.session_state.extras_A,
-                               st.session_state.result_B, st.session_state.inputs_B, st.session_state.extras_B,
-                               st.session_state.benchmarks, st.session_state.elapsed)
+            if len(runs) == 1:
+                r = runs[0]
+                render_single(r["result"], r["inputs"], r["extras"], bench, "A", elapsed=elapsed)
+            elif len(runs) == 2:
+                a, b = runs
+                render_compare(a["result"], a["inputs"], a["extras"],
+                               b["result"], b["inputs"], b["extras"], bench, elapsed)
             else:
-                render_single(st.session_state.result_A, st.session_state.inputs_A, st.session_state.extras_A,
-                              st.session_state.benchmarks, "A", elapsed=st.session_state.elapsed)
-
-    if st.session_state.get("cand_results"):
-        with st.container(key="results-capsule2"):
-            render_candidate_results()
+                render_multi(runs, bench, elapsed)
 
     if just_computed:
         _scroll_to_results()   # baja solo a la sección de análisis (una vez, tras cargar)

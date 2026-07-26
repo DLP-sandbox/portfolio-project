@@ -71,9 +71,16 @@ def probability_of_ruin(paths: np.ndarray) -> float:
     return ruined / n
 
 
+RISK_FREE_ANNUAL = 0.04   # alternativa "segura" (misma referencia que usa el análisis)
+
+
 def expected_sharpe(mean_monthly: np.ndarray, cov_monthly: np.ndarray,
-                    weights: np.ndarray, risk_free_annual: float = 0.0) -> float:
-    """Sharpe esperado anualizado del portafolio (a partir de μ/Σ mensuales)."""
+                    weights: np.ndarray, risk_free_annual: float = RISK_FREE_ANNUAL) -> float:
+    """Sharpe esperado anualizado del portafolio (a partir de μ/Σ mensuales).
+
+    Usa una tasa libre de riesgo real (4%): con rf=0 el Sharpe queda inflado y hace ver
+    como "eficiente" a un portafolio que apenas supera a un depósito seguro.
+    """
     port_mean_m = float(weights @ mean_monthly)
     port_var_m = float(weights @ cov_monthly @ weights)
     if port_var_m <= 0:

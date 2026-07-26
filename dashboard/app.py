@@ -577,6 +577,12 @@ def render_analysis_panel(result, inputs, kp) -> None:
                                 help="Qué porcentaje del portafolio está en tu activo más grande. "
                                      "Mucho en uno solo = más vulnerable a que a ese le vaya mal.",
                                 rating=rating.rate("concentration", s["max_weight"]))
+            components.kpi_tile("Efecto diversificación", f"{s['diversification_ratio']:.2f}×",
+                                S.GREEN, "estabilidad ganada",
+                                help="Cuánto más estable es el conjunto que sus piezas por separado. "
+                                     "1.00× = no ganas nada al mezclar; 1.30× o más = la mezcla "
+                                     "amortigua de verdad los golpes.",
+                                rating=rating.rate("div_ratio", s["diversification_ratio"]))
 
     # 2) DE DÓNDE VIENE TU RIESGO — arriba de los hallazgos para que se note.
     if len(s["assets"]) >= 2:
@@ -598,11 +604,12 @@ def render_analysis_panel(result, inputs, kp) -> None:
         components.card_head("◆", "Retorno, riesgo y lo que puedes perder")
         m = st.columns(3)
         with m[0]:
-            components.kpi_tile("Retorno esperado", components.fmt_pct(s["ann_return"]), S.GREEN,
-                                "al año (promedio)",
-                                help="Rendimiento anual promedio esperado según el histórico. Es un "
-                                     "promedio: años individuales pueden ser mucho mejores o peores.",
-                                rating=rating.rate("return", s["ann_return"]))
+            components.kpi_tile("Retorno compuesto", components.fmt_pct(s["cagr"]), S.GREEN,
+                                f"al año · promedio {components.fmt_pct(s['ann_return'])}",
+                                help="La tasa a la que tu dinero REALMENTE capitaliza (CAGR). Es menor "
+                                     f"que el promedio simple ({components.fmt_pct(s['ann_return'])}) porque el "
+                                     "vaivén cobra un peaje: caer 50% exige subir 100% para volver.",
+                                rating=rating.rate("cagr", s["cagr"]))
         with m[1]:
             components.kpi_tile("Volatilidad", "±" + components.fmt_pct(s["ann_vol"]), S.ORANGE,
                                 "vaivén al año",
@@ -676,12 +683,20 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
                     f"{_b(components.fmt_money(p5), S.RED)} (si va mal) y "
                     f"{_b(components.fmt_money(p95), S.GREEN)} (si va bien).")
 
-    tab_names = ["Resumen", "Análisis", "¿Alcanzo mi meta?", "Riesgos"]
+    # Secciones con estado PROPIO por portafolio (st.tabs no acepta `key` y se reinicia al
+    # cambiar de portafolio). Con segmented_control keyed, cada portafolio recuerda en qué
+    # sección estabas y son independientes entre sí.
+    sections = ["Resumen", "Análisis", "¿Alcanzo mi meta?", "Riesgos"]
     if benchmarks:
-        tab_names.append("Comparar")
-    tabs = st.tabs(tab_names)
+        sections.append("Comparar")
+    sect_key = f"sect_{kp}"
+    if st.session_state.get(sect_key) not in sections:
+        st.session_state[sect_key] = sections[0]
+    with st.container(key=f"sectbar_{kp}"):
+        st.radio("Sección", sections, key=sect_key, horizontal=True, label_visibility="collapsed")
+    sect = st.session_state.get(sect_key) or sections[0]
 
-    with tabs[0]:
+    if sect == "Resumen":
         # 1) Proyección primero de todo — con línea gris "Aportado" vs "Invertido".
         with components.card(f"res-fan-{kp}"):
             components.card_head("◆", f"Proyección a {years} años",
@@ -717,10 +732,10 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             components.card_head("◆", "¿Qué significa esto?")
             st.markdown(_md_money(interpret.interpret_locally(result, inputs, extras.get("stress"))))
 
-    with tabs[1]:
+    if sect == "Análisis":
         render_analysis_panel(result, inputs, kp)
 
-    with tabs[2]:
+    if sect == "¿Alcanzo mi meta?":
         with components.card(f"dist-hist-{kp}"):
             components.card_head("◆", "Distribución del patrimonio final", "dónde caen los 10.000 resultados")
             st.plotly_chart(charts.histogram_final(fv), use_container_width=True,
@@ -754,7 +769,7 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             components.card_head("◆", "¿Qué dice esta gráfica?")
             st.markdown(_md_money(interpret.interpret_goal(result, inputs)))
 
-    with tabs[3]:
+    if sect == "Riesgos":
         with components.card(f"risk-metrics-{kp}"):
             components.card_head("◆", "Riesgos en detalle", "para quien quiere profundizar")
             m = st.columns(4)
@@ -816,8 +831,8 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
         if not sd and not seq:
             st.info("Activa 'Stress test' o 'Secuencia de retornos' en Opciones avanzadas para más análisis.")
 
-    if benchmarks:
-        with tabs[4]:
+    if benchmarks and sect == "Comparar":
+        if True:
             scen = [{"label": "Tu portafolio", "percentiles": result["percentiles"]}]
             scen += [{"label": b["label"], "percentiles": b["result"]["percentiles"]} for b in benchmarks]
             with components.card(f"cmp-{kp}"):

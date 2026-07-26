@@ -596,6 +596,32 @@ def inject_css() -> None:
             background:{METAL_BG} !important; border-color:{GOLD_HOVER} !important;
             color:{ORANGE} !important; box-shadow:0 -3px 16px rgba(255,184,77,.12); }}
 
+        /* ── Barra de secciones (Resumen/Análisis/…): CENTRADA, estilo pestañas premium ── */
+        div[class*="st-key-sectbar_"] {{ display:flex; justify-content:center; margin:4px 0 18px; }}
+        div[class*="st-key-sectbar_"] [data-testid="stRadio"] {{ width:auto !important; }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] {{
+            display:inline-flex !important; justify-content:center; flex-wrap:wrap; gap:4px;
+            background:{BG_CARD}; border:1px solid {BORDER}; border-radius:14px; padding:5px; }}
+        /* Cada opción como pestaña; se oculta el círculo del radio */
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label {{
+            margin:0 !important; padding:9px 17px !important; border-radius:10px !important;
+            border:1px solid transparent !important; background:transparent !important;
+            cursor:pointer;
+            transition: background .18s var(--dlp-ease-out), border-color .18s var(--dlp-ease-out); }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label > div:first-child {{ display:none !important; }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label p {{
+            font-family:{MONO} !important; font-size:12.5px !important; font-weight:700 !important;
+            text-transform:uppercase; letter-spacing:.06em; color:{TEXT_LO} !important; margin:0 !important;
+            transition: color .18s var(--dlp-ease-out); }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label:hover {{ background:rgba(255,184,77,.06) !important; }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label:hover p {{ color:{TEXT_MD} !important; }}
+        /* Seleccionada: superficie metálica + borde y texto dorados */
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label:has(input:checked) {{
+            background:{METAL_BG} !important; border-color:{GOLD_HOVER} !important;
+            box-shadow:0 2px 14px rgba(255,184,77,.16) !important; }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label:has(input:checked) p {{
+            color:{ORANGE} !important; }}
+
         /* ── Slider de horizonte: grueso, protagonista, con glow dorado ── */
         .stSlider [data-baseweb="slider"] {{ padding-top:12px !important; padding-bottom:2px !important; }}
         .stSlider [data-baseweb="slider"] > div {{ height:10px !important; border-radius:6px !important; }}

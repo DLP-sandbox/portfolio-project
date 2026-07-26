@@ -105,6 +105,89 @@ def simulate_paths(
     return paths
 
 
+def simulate_and_measure(
+    mean_monthly: np.ndarray,
+    cov_monthly: np.ndarray,
+    weights: np.ndarray,
+    initial_capital: float,
+    monthly_contribution: float,
+    n_months: int,
+    n_simulations: int = 10_000,
+    distribution: str = "normal",
+    annual_fees_pct: float = 0.0,
+    annual_tax_on_gains_pct: float = 0.0,
+    absorb_at_zero: bool = False,
+    random_seed: int | None = None,
+    levels: tuple[int, ...] = st_metrics.PERCENTILE_LEVELS,
+) -> dict:
+    """Igual que `simulate_paths` pero SIN materializar la matriz de paths.
+
+    Las métricas que necesita la app se pueden calcular en streaming dentro del bucle:
+    - percentiles por mes → percentil del vector `capital` en cada paso;
+    - máximo drawdown por path → running-max incremental;
+    - ruina → OR incremental;
+    - valores finales → el `capital` del último mes.
+
+    Resultados IDÉNTICOS a la versión con matriz (mismo orden de sorteos del RNG), pero el
+    pico de memoria baja de decenas de MB a ~unos pocos: crítico para el plan de 512 MB.
+    """
+    rng = np.random.default_rng(random_seed)
+    n_assets = mean_monthly.shape[0]
+    L = _safe_cholesky(cov_monthly)
+
+    capital = np.full(n_simulations, float(initial_capital))
+    fee_factor = 1.0 - (annual_fees_pct / 12.0 / 100.0)
+    tax_rate = annual_tax_on_gains_pct / 100.0
+    year_start = capital.copy()
+    contrib_in_year = 0.0
+    use_t = distribution == "t-student"
+    df = 4
+
+    # Acumuladores (todos de tamaño n_simulations o (n_levels, n_months+1) → chicos)
+    pcts = np.empty((len(levels), n_months + 1), dtype=np.float64)
+    pcts[:, 0] = float(initial_capital)
+    running_max = capital.copy()
+    max_dd = np.zeros(n_simulations, dtype=np.float64)
+    ever_ruined = capital <= 0
+
+    for m in range(1, n_months + 1):
+        z = rng.standard_normal((n_simulations, n_assets))
+        if use_t:
+            chi2 = rng.chisquare(df, size=(n_simulations, 1))
+            z = z * np.sqrt(df / chi2) * np.sqrt((df - 2) / df)
+        asset_returns = mean_monthly + z @ L.T
+        port_return = asset_returns @ weights
+        np.clip(port_return, -0.95, None, out=port_return)
+
+        capital = capital * (1.0 + port_return) + monthly_contribution
+        capital *= fee_factor
+        contrib_in_year += monthly_contribution
+
+        if tax_rate > 0 and m % 12 == 0:
+            gain = capital - year_start - contrib_in_year
+            capital = capital - np.where(gain > 0, gain * tax_rate, 0.0)
+            year_start = capital.copy()
+            contrib_in_year = 0.0
+
+        if absorb_at_zero:
+            np.maximum(capital, 0.0, out=capital)
+
+        # ── Métricas en streaming (equivalentes a calcularlas sobre la matriz) ──
+        np.maximum(running_max, capital, out=running_max)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            dd = (running_max - capital) / np.where(running_max > 0, running_max, np.nan)
+        np.fmax(max_dd, dd, out=max_dd)          # fmax ignora NaN, como nanmax
+        ever_ruined |= capital <= 0
+        pcts[:, m] = np.percentile(capital, levels)
+
+    return {
+        "final_values": capital.copy(),
+        "percentiles": {f"P{lvl}": pcts[i] for i, lvl in enumerate(levels)},
+        "max_drawdown_typical": float(np.median(max_dd)),
+        "probability_of_ruin": float(np.mean(ever_ruined)),
+    }
+
+
 def run_montecarlo(
     initial_capital: float,
     monthly_contribution: float,
@@ -154,7 +237,9 @@ def run_montecarlo(
     mean_monthly = mean_daily * TRADING_DAYS_PER_MONTH
     cov_monthly = cov_daily * TRADING_DAYS_PER_MONTH
 
-    paths = simulate_paths(
+    # Simulación en STREAMING: calcula las métricas dentro del bucle sin materializar la
+    # matriz de paths (n_sim × meses). Mismos resultados, pico de memoria mínimo.
+    m = simulate_and_measure(
         mean_monthly=mean_monthly,
         cov_monthly=cov_monthly,
         weights=weights_arr,
@@ -168,25 +253,15 @@ def run_montecarlo(
         absorb_at_zero=absorb_at_zero or monthly_contribution < 0,
         random_seed=random_seed,
     )
-
-    # Derivar todas las métricas ANTES de soltar la matriz grande de paths.
-    final_values = paths[:, -1].copy()
-    percentiles = st_metrics.percentiles_by_month(paths)
-    max_drawdown = st_metrics.max_drawdown_typical(paths)
-    prob_ruin = st_metrics.probability_of_ruin(paths)
-    expected_sharpe = st_metrics.expected_sharpe(mean_monthly, cov_monthly, weights_arr)
-    # `paths` (n_sim × meses, hasta ~40 MB) ya no se necesita: nada aguas abajo la
-    # usa, solo estas métricas. La liberamos aquí para NO retenerla en session_state
-    # (evita acumular varias matrices y quedarnos sin memoria en instancias chicas).
-    del paths
+    final_values = m["final_values"]
 
     return {
         "final_values": final_values,
-        "percentiles": percentiles,
+        "percentiles": m["percentiles"],
         "prob_target": st_metrics.prob_target(final_values, target),
-        "max_drawdown_typical": max_drawdown,
-        "probability_of_ruin": prob_ruin,
-        "expected_sharpe": expected_sharpe,
+        "max_drawdown_typical": m["max_drawdown_typical"],
+        "probability_of_ruin": m["probability_of_ruin"],
+        "expected_sharpe": st_metrics.expected_sharpe(mean_monthly, cov_monthly, weights_arr),
         "is_sample": is_sample,
         "months": n_months,
     }

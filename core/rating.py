@@ -41,8 +41,12 @@ def word_for_pos(pos: float) -> str:
 
 def _pos(key: str, v: float) -> float:
     """Posición 0-1 (0=peor/rojo, 1=mejor/verde) por métrica, con umbrales de analista."""
-    if key == "sharpe":         # eficiencia: >1 bueno, >2 excelente
-        return _clamp(v / 2.0)
+    if key == "sharpe":         # Sharpe REAL (con tasa libre): 0.5 decente, ~1.0 excelente
+        return _clamp(v / 1.2)
+    if key == "cagr":           # retorno compuesto anual: más es mejor
+        return _clamp(v / 0.12)
+    if key == "div_ratio":      # ratio de diversificación: 1.0 nula, ≥1.6 excelente
+        return _clamp((v - 1.0) / 0.6)
     if key == "drawdown":       # caída típica (frac): menos es mejor
         return _clamp(1.0 - v / 0.50)
     if key == "volatility":     # volatilidad anual (frac): menos es mejor

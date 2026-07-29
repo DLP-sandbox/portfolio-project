@@ -289,16 +289,19 @@ def allocation_donut(items: list[dict], lead_color: str | None = None) -> go.Fig
     fig = go.Figure(go.Pie(
         labels=labels, values=values, hole=0.62, sort=False, direction="clockwise",
         marker=dict(colors=colors, line=dict(color=S.BG_CARD, width=3)),
-        textinfo="label+percent", textposition="outside",
-        textfont=dict(family=S.MONO, color=S.TEXT_MD, size=13),
+        textinfo="label+percent", textposition="inside", insidetextorientation="horizontal",
+        textfont=dict(family=S.MONO, color="#0A0B0D", size=11),
         hovertemplate="%{label}: %{percent}<extra></extra>",
     ))
     n = len(items)
     fig.add_annotation(text=f"<b>{n}</b><br><span style='font-size:11px'>activo{'s' if n != 1 else ''}</span>",
                        showarrow=False,
                        font=dict(family=S.MONO, color=(lead_color or S.TEXT_HI), size=24))
+    # uniformtext oculta la etiqueta si no cabe (en vez de recortarla o solaparla)
+    fig.update_traces(automargin=True)
     fig.update_layout(height=260, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      showlegend=False, margin=dict(l=16, r=16, t=16, b=16),
+                      showlegend=False, margin=dict(l=8, r=8, t=8, b=8),
+                      uniformtext=dict(minsize=9, mode="hide"),
                       font=dict(family=S.MONO, color=S.TEXT_MD),
                       hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
                                       font=dict(family=S.MONO, color=S.TEXT_MD)))
@@ -403,7 +406,7 @@ def risk_vs_weight_bar(assets: list[dict], max_rows: int = 8) -> go.Figure:
     return fig
 
 
-def diversification_meter(avg_corr: float) -> go.Figure:
+def diversification_meter(avg_corr: float, height: int = 220) -> go.Figure:
     """Gauge de correlación media (diversificación real). Verde <0.4, naranja 0.4-0.7, rojo >0.7."""
     val = max(0.0, min(1.0, avg_corr)) * 100.0
     color = S.GREEN if avg_corr < 0.4 else (S.ORANGE if avg_corr < 0.7 else S.RED)
@@ -427,7 +430,97 @@ def diversification_meter(avg_corr: float) -> go.Figure:
         },
         domain={"x": [0, 1], "y": [0, 1]},
     ))
-    fig.update_layout(height=220, paper_bgcolor="rgba(0,0,0,0)",
+    fig.update_layout(height=height, paper_bgcolor="rgba(0,0,0,0)",
                       font=dict(family=S.MONO, color=S.TEXT_MD),
-                      margin=dict(l=24, r=24, t=40, b=6))
+                      margin=dict(l=20, r=20, t=38, b=4))
+    return fig
+
+
+# ── Exposición por sector / clase de activo ──────────────────────────────────
+_CLASS_COLORS = {
+    "Acciones": S.ORANGE, "ETF": S.BLUE, "Bonos": S.PURPLE,
+    "Materias primas": S.GOLD, "Cripto": S.GREEN, "Sin clasificar": S.TEXT_LO,
+}
+
+
+def sector_bar(rows: list[dict], max_rows: int = 6) -> go.Figure:
+    """Exposición por sector: barras horizontales sobrias, % al final de cada barra.
+
+    La cola se agrupa en "Otros" (no se recorta) para que lo mostrado sume 100%.
+    """
+    try:
+        from data.sectors import top_sectors
+        rows = top_sectors(rows, max_rows)
+    except Exception:
+        rows = rows[:max_rows]
+    rows = rows[::-1]                     # invertido → el mayor arriba
+    names = [r["name"] for r in rows]
+    pcts = [r["pct"] for r in rows]
+    fig = go.Figure(go.Bar(
+        y=names, x=pcts, orientation="h",
+        marker=dict(color=S.ORANGE, cornerradius=4,
+                    line=dict(color="rgba(255,255,255,.18)", width=1)),
+        text=[f"{p:.0f}%" for p in pcts], textposition="outside",
+        textfont=dict(family=S.MONO, color=S.TEXT_MD, size=11),
+        hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
+    ))
+    _apply_dlp_layout(fig, "", "", height=max(200, 30 * len(rows) + 60))
+    fig.update_layout(hovermode="closest", margin=dict(l=8, r=44, t=16, b=24))
+    fig.update_xaxes(showgrid=False, showticklabels=False, zeroline=False,
+                     range=[0, max(pcts + [1]) * 1.22])
+    fig.update_yaxes(automargin=True, showgrid=False,
+                     tickfont=dict(family=S.FONT_FAMILY, color=S.TEXT_MD, size=12))
+    return fig
+
+
+def asset_class_bar(rows: list[dict]) -> go.Figure:
+    """Distribución por tipo de activo: una sola barra apilada horizontal con leyenda."""
+    fig = go.Figure()
+    for r in rows:
+        col = _CLASS_COLORS.get(r["name"], S.TEXT_LO)
+        fig.add_trace(go.Bar(
+            y=["  "], x=[r["pct"]], orientation="h", name=f"{r['name']} {r['pct']:.0f}%",
+            marker=dict(color=col, line=dict(color="rgba(255,255,255,.18)", width=1)),
+            hovertemplate=f"{r['name']}: %{{x:.1f}}%<extra></extra>",
+        ))
+    fig.update_layout(
+        barmode="stack", height=118, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=6), showlegend=True,
+        legend=dict(orientation="h", yanchor="top", y=0.05, xanchor="center", x=0.5,
+                    bgcolor="rgba(0,0,0,0)", font=dict(family=S.MONO, color=S.TEXT_MD, size=11)),
+        font=dict(family=S.MONO, color=S.TEXT_MD),
+        hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
+                        font=dict(family=S.MONO, color=S.TEXT_MD)),
+    )
+    fig.update_xaxes(visible=False, range=[0, 100])
+    fig.update_yaxes(visible=False)
+    return fig
+
+
+def stress_drop_bars(stress: dict) -> go.Figure:
+    """Caídas por crisis histórica: barras VERTICALES que crecen hacia abajo.
+
+    Sin cifras dentro de la barra (van debajo, en la UI), borde sólido y esquinas
+    redondeadas. El eje Y no se muestra: la magnitud se lee en las etiquetas de abajo.
+    """
+    evs = stress["events"]
+    names = [e["name"] for e in evs]
+    drops = [-e["portfolio_drawdown"] * 100 for e in evs]   # negativos → hacia abajo
+    fig = go.Figure(go.Bar(
+        x=names, y=drops,
+        marker=dict(color=S.RED, cornerradius=6,
+                    line=dict(color="rgba(255,255,255,.22)", width=1.2)),
+        hovertemplate="%{x}: %{y:.0f}%<extra></extra>",
+    ))
+    # Nombre de cada crisis ARRIBA de su barra, en blanco y grande (se lee mejor)
+    for nm, d in zip(names, drops):
+        fig.add_annotation(x=nm, y=0, yshift=16, text=nm, showarrow=False,
+                           font=dict(family=S.FONT_FAMILY, size=13.5, color=S.TEXT_HI))
+    _apply_dlp_layout(fig, "", "", height=268)
+    fig.update_layout(hovermode="closest", margin=dict(l=10, r=10, t=40, b=8), bargap=0.45)
+    fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False,
+                     showline=False, linecolor="rgba(0,0,0,0)")
+    fig.update_yaxes(showgrid=False, zeroline=True, zerolinecolor=S.GRID_ZERO,
+                     showticklabels=False, showline=False, linecolor="rgba(0,0,0,0)",
+                     range=[min(drops) * 1.18, 0])
     return fig

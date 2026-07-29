@@ -304,6 +304,23 @@ def inject_css() -> None:
         .dlp-side-item .lbl {{ color:{TEXT_MD}; font-size:13px; font-weight:600; }}
         .dlp-side-item .meta {{ color:{TEXT_LO}; font-size:11px; margin-top:2px; }}
 
+        /* Nota fina: aviso legal discreto, alineado a la derecha */
+        .dlp-fineprint {{ text-align:right; color:{TEXT_DIM}; font-size:11px; line-height:1.45;
+            font-style:italic; margin:6px 0 0; }}
+
+        /* Pie del stress test: separador + % bajo cada barra */
+        .dlp-stress-sep {{ height:1px; background:{HAIRLINE_2}; margin:2px 0 10px; }}
+        .dlp-stress-foot {{ text-align:center; }}
+        .dlp-stress-foot .pct {{ font-family:{MONO}; font-size:19px; font-weight:800; color:{RED};
+            line-height:1.1; font-variant-numeric:tabular-nums; }}
+        .dlp-stress-foot .nm {{ font-family:{FONT_FAMILY}; font-size:11px; color:{TEXT_LO};
+            margin-top:3px; line-height:1.25; }}
+
+        /* Caja de análisis junto al tacómetro: nunca más alta que el gauge */
+        .dlp-analysis-box {{ margin-bottom:0 !important; padding:14px 16px !important;
+            max-height:196px; overflow:hidden; }}
+        .dlp-analysis-box .body {{ color:{TEXT_MD}; font-size:13px; line-height:1.5; margin-top:6px; }}
+
         /* ── Hero de resultados (v2): monto grande centrado, meta distribuida ── */
         .dlp-hero-v2 {{ text-align:center; background:
             radial-gradient(600px 220px at 50% -40px, rgba(var(--accent-rgb),.10), rgba(0,0,0,0) 70%), {METAL_BG};
@@ -644,21 +661,39 @@ def inject_css() -> None:
             color:{ORANGE} !important; box-shadow:0 -3px 16px rgba(var(--accent-rgb),.12); }}
 
         /* ── Barra de secciones (Resumen/Análisis/…): CENTRADA, estilo pestañas premium ── */
-        div[class*="st-key-sectbar_"] {{ display:flex; justify-content:center; margin:4px 0 18px; }}
-        div[class*="st-key-sectbar_"] [data-testid="stRadio"] {{ width:auto !important; }}
+        /* Centrado robusto: el stRadio y sus wrappers ocupan el 100% del ancho, así que
+           se centra el CONTENIDO en cada nivel de la cadena (no el contenedor). */
+        div[class*="st-key-sectbar_"] {{ margin:4px 0 18px; }}
+        div[class*="st-key-sectbar_"] [data-testid="stRadio"],
+        div[class*="st-key-sectbar_"] [data-testid="stRadio"] > div {{
+            width:100% !important; display:flex !important; justify-content:center !important; }}
         div[class*="st-key-sectbar_"] [role="radiogroup"] {{
-            display:inline-flex !important; justify-content:center; flex-wrap:wrap; gap:4px;
-            background:{BG_CARD}; border:1px solid {BORDER}; border-radius:14px; padding:5px; }}
+            display:inline-flex !important; justify-content:center; flex-wrap:nowrap; gap:2px;
+            margin:0 auto !important; width:auto !important; max-width:100%;
+            background:{BG_CARD}; border:1px solid {BORDER}; border-radius:12px; padding:4px; }}
         /* Cada opción como pestaña; se oculta el círculo del radio */
         div[class*="st-key-sectbar_"] [role="radiogroup"] label {{
-            margin:0 !important; padding:9px 17px !important; border-radius:10px !important;
+            margin:0 !important; padding:7px 11px !important; border-radius:9px !important;
+            white-space:nowrap !important;
             border:1px solid transparent !important; background:transparent !important;
             cursor:pointer;
             transition: background .18s var(--dlp-ease-out), border-color .18s var(--dlp-ease-out); }}
-        div[class*="st-key-sectbar_"] [role="radiogroup"] label > div:first-child {{ display:none !important; }}
+        /* Círculo del radio: visible y apagado; se enciende en oro al seleccionar */
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label > div:first-child {{
+            display:inline-flex !important; margin-right:5px !important; }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label > div:first-child > div {{
+            background:transparent !important; border:1.5px solid {TEXT_DIM} !important;
+            width:11px !important; height:11px !important;
+            transition: border-color var(--dur-2) var(--dlp-ease-out),
+                        background var(--dur-2) var(--dlp-ease-out),
+                        box-shadow var(--dur-2) var(--dlp-ease-out); }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label:has(input:checked) > div:first-child > div {{
+            background:{ORANGE} !important; border-color:{GOLD} !important;
+            box-shadow:0 0 0 3px rgba(var(--accent-rgb),.18) !important; }}
         div[class*="st-key-sectbar_"] [role="radiogroup"] label p {{
-            font-family:{MONO} !important; font-size:12.5px !important; font-weight:700 !important;
-            text-transform:uppercase; letter-spacing:.06em; color:{TEXT_LO} !important; margin:0 !important;
+            font-family:{FONT_FAMILY} !important; font-size:11.5px !important; font-weight:600 !important;
+            text-transform:none; letter-spacing:0; color:{TEXT_LO} !important; margin:0 !important;
+            white-space:nowrap !important;
             transition: color .18s var(--dlp-ease-out); }}
         div[class*="st-key-sectbar_"] [role="radiogroup"] label:hover {{ background:rgba(var(--accent-rgb),.06) !important; }}
         div[class*="st-key-sectbar_"] [role="radiogroup"] label:hover p {{ color:{TEXT_MD} !important; }}

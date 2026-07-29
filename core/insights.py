@@ -279,6 +279,18 @@ def build_findings(structure: dict, outcomes: dict, result: dict, inputs: dict) 
                 f"rendimiento.",
                 value=corr, importance=imp(46)))
 
+    # ── 3b) Sobre-diversificación: diversificar de más diluye el rendimiento ──
+    if n >= 12 and structure["max_weight"] < 0.08:
+        f.append(_finding(
+            "over_diversification", "Diversificación real", "neutral",
+            "Puede que estés diversificando de más",
+            f"Tienes {n} activos y ninguno pasa del {_pct(structure['max_weight'])}: el riesgo está "
+            f"muy repartido, pero a partir de cierto punto añadir posiciones ya no reduce riesgo — "
+            f"solo diluye tus mejores ideas y te acerca al comportamiento del índice, con mucho más "
+            f"trabajo de seguimiento. Si vas a parecerte al mercado, un índice barato lo hace más "
+            f"simple; si quieres superarlo, tus mejores convicciones necesitan peso suficiente.",
+            value=float(n), importance=imp(58, 2.0 * (n - 12))))
+
     # ── 4) Concentración por peso ────────────────────────────────────────────
     mw, sym = structure["max_weight"], structure["max_weight_symbol"]
     if mw >= 0.35:

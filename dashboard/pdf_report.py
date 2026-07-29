@@ -88,8 +88,12 @@ def _y(top: float) -> float:
     return PAGE_H - top
 
 
-def _card(c, x, top, w, h, fill=C_CARD, border=C_BORDER, left_accent=None, radius=14):
+def _card(c, x, top, w, h, fill=C_CARD, border=C_BORDER, left_accent=None, radius=14,
+          shadow: bool = True):
     y = _y(top + h)
+    if shadow:   # sombra suave de una sola luz cenital (misma idea que en la app)
+        c.setFillColor(HexColor("#07080A"))
+        c.roundRect(x + 2, y - 3, w, h, radius, stroke=0, fill=1)
     c.setFillColor(fill)
     if border is not None:
         c.setStrokeColor(border)
@@ -311,6 +315,106 @@ def _page2(c, fonts, result, inputs, benchmarks, conclusion):
     c.showPage()
 
 
+# ── Página 3 — Composición, exposición y estrés ──────────────────────────────
+def _page3(c, fonts, result, inputs, exposure, stress):
+    """Composición + exposición + estrés, con hallazgos y lecturas (no solo gráficas).
+
+    Presupuesto vertical (PAGE_H=1080): cabecera 150 · fila1 150-510 · fila2 534-684 ·
+    fila3 708-998. Cada bloque cabe dentro de su tarjeta con holgura (sin solapes).
+    """
+    from dashboard import charts
+    from core import interpret as _int
+
+    c.setFillColor(C_BG)
+    c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
+    _page_header(c, fonts, "Composición y riesgo",
+                 "En qué está invertido tu dinero y cómo se comportaría en las peores crisis")
+
+    items = [{"symbol": t, "weight": w * 100} for t, w in zip(inputs["tickers"], inputs["weights"])]
+    GUT, PADX = 24, 28
+    analysis = result.get("analysis") or {}
+
+    # ── Fila 1: dona (izq) + exposición (der) ────────────────────────────────
+    top1, h1, lw = 150, 360, 820
+    _card(c, MARGIN, top1, lw, h1, left_accent=C_ORANGE)
+    _text(c, MARGIN + PADX, top1 + 18, "TU PORTAFOLIO, ACTIVO POR ACTIVO", fonts["medium"], 14, C_HI)
+    try:
+        donut = _chart_png(charts.allocation_donut(items), 660, 262)
+        c.drawImage(ImageReader(donut), MARGIN + (lw - 660) / 2, _y(top1 + h1 - 24), 660, 262, mask="auto")
+    except Exception:
+        _text(c, MARGIN + PADX, top1 + 150, "(composición no disponible)", fonts["regular"], 13, C_LO)
+
+    rx = MARGIN + lw + GUT
+    rw = PAGE_W - MARGIN - rx
+    _card(c, rx, top1, rw, h1)
+    _text(c, rx + PADX, top1 + 18, "EXPOSICIÓN POR SECTOR", fonts["medium"], 14, C_HI)
+    top = top1 + 52
+    try:
+        from data.sectors import top_sectors as _tops
+        _secrows = _tops((exposure or {}).get("by_sector", []), 5)
+    except Exception:
+        _secrows = (exposure or {}).get("by_sector", [])[:5]
+    for row in _secrows:
+        _text(c, rx + PADX, top, row["name"][:22], fonts["regular"], 13, C_MD)
+        _text(c, rx + rw - PADX, top, f"{row['pct']:.0f}%", fonts["bold"], 13, C_ORANGE, right=True)
+        bw = (rw - 2 * PADX) * min(row["pct"], 100) / 100.0
+        c.setFillColor(C_ORANGE)
+        c.roundRect(rx + PADX, _y(top + 29), max(bw, 2), 4.5, 2, stroke=0, fill=1)
+        top += 40
+    top += 12
+    _text(c, rx + PADX, top, "POR TIPO DE ACTIVO", fonts["medium"], 12, C_LO)
+    top += 24
+    for row in (exposure or {}).get("by_class", [])[:4]:
+        _text(c, rx + PADX, top, row["name"][:20], fonts["regular"], 12.5, C_MD)
+        _text(c, rx + rw - PADX, top, f"{row['pct']:.0f}%", fonts["bold"], 12.5, C_HI, right=True)
+        top += 24
+
+    # ── Fila 2: lectura de la estructura + hallazgos clave ───────────────────
+    top2, h2 = top1 + h1 + GUT, 150
+    _card(c, MARGIN, top2, lw, h2, left_accent=C_GOLD)
+    _text(c, MARGIN + PADX, top2 + 16, "LECTURA DE TU ESTRUCTURA", fonts["medium"], 13.5, C_HI)
+    try:
+        txt = _plain(_int.interpret_diversification(analysis.get("structure", {})))
+    except Exception:
+        txt = ""
+    _paragraph(c, MARGIN + PADX, top2 + 46, lw - 2 * PADX, txt, fonts["regular"], 13, C_MD, leading=20)
+
+    _card(c, rx, top2, rw, h2)
+    _text(c, rx + PADX, top2 + 16, "HALLAZGOS CLAVE", fonts["medium"], 13.5, C_HI)
+    yy = top2 + 48
+    for fd in (analysis.get("findings") or [])[:3]:
+        col = C_RED if fd.get("sentiment") == "alerta" else (
+            C_GREEN if fd.get("sentiment") == "positivo" else C_BLUE)
+        c.setFillColor(col)
+        c.circle(rx + PADX + 4, _y(yy + 5), 3.5, stroke=0, fill=1)
+        _text(c, rx + PADX + 16, yy - 3, _plain(fd.get("title", ""))[:42], fonts["bold"], 12, C_MD)
+        yy += 28
+
+    # ── Fila 3: estrés (gráfica + % + lectura) ───────────────────────────────
+    top3, h3 = top2 + h2 + GUT, 290
+    _card(c, MARGIN, top3, PAGE_W - 2 * MARGIN, h3, left_accent=C_RED)
+    _text(c, MARGIN + PADX, top3 + 16, "CUÁNTO HABRÍA CAÍDO EN UN MAL MOMENTO", fonts["medium"], 13.5, C_HI)
+    if stress and stress.get("events"):
+        img_w = PAGE_W - 2 * MARGIN - 2 * PADX
+        try:
+            png = _chart_png(charts.stress_drop_bars(stress), int(img_w), 155)
+            c.drawImage(ImageReader(png), MARGIN + PADX, _y(top3 + 46 + 155), img_w, 155, mask="auto")
+        except Exception:
+            pass
+        plot_x0, plot_w = MARGIN + PADX + 10, img_w - 20
+        step = plot_w / max(len(stress["events"]), 1)
+        for i, ev in enumerate(stress["events"]):
+            cx = plot_x0 + step * (i + 0.5)
+            _text(c, cx, top3 + 210, f"−{ev['portfolio_drawdown']*100:.0f}%", fonts["bold"], 16, C_RED, center=True)
+        try:
+            lect = _plain(_int.interpret_stress(stress, result, inputs))
+        except Exception:
+            lect = ""
+        _paragraph(c, MARGIN + PADX, top3 + 240, PAGE_W - 2 * MARGIN - 2 * PADX, lect,
+                   fonts["regular"], 12.5, C_MD, leading=19)
+    c.showPage()
+
+
 # ── API pública ──────────────────────────────────────────────────────────────
 def generate_report(result: dict, inputs: dict, benchmarks: list[dict] | None = None) -> bytes:
     """Genera el PDF de 2 páginas (Resumen + Análisis detallado) y devuelve sus bytes."""
@@ -319,16 +423,31 @@ def generate_report(result: dict, inputs: dict, benchmarks: list[dict] | None = 
     _ensure_kaleido_launcher()
     fonts = register_fonts()
 
-    # Conclusión por reglas locales (sin API). Quitamos el recordatorio final (ya hay disclaimer).
-    raw = interpret.interpret_locally(result, inputs)
-    paras = [p.strip() for p in raw.split("\n\n")
-             if "no es predicción" not in p.lower() and "no es recomendación" not in p.lower()]
-    conclusion = _plain(" ".join(paras))
+    # Conclusión con variantes combinables (compositor por reglas, sembrado estable):
+    # usa los datos reales del análisis y suena a redacción natural, sin ninguna API.
+    conclusion = _plain(interpret.pdf_conclusion(result, inputs, benchmarks))
+
+    # Exposición y estrés para la página 3 (ambos tolerantes a fallo)
+    try:
+        from data import sectors as _sect
+        exposure = _sect.portfolio_exposure(
+            [{"symbol": t, "weight": w} for t, w in zip(inputs["tickers"], inputs["weights"])])
+    except Exception:
+        exposure = None
+    try:
+        from core import stress as _stress
+        import numpy as _np
+        stress = _stress.compute_stress(inputs["tickers"], inputs["weights"],
+                                        float(_np.percentile(result["final_values"], 50)),
+                                        inputs.get("historical_window_years", 10))
+    except Exception:
+        stress = None
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
     c.setTitle("Analista de Portafolios")
     _page1(c, fonts, result, inputs)
+    _page3(c, fonts, result, inputs, exposure, stress)
     _page2(c, fonts, result, inputs, benchmarks or [], conclusion)
     c.save()
     return buf.getvalue()

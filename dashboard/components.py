@@ -161,10 +161,9 @@ def ticker_result_card(r: dict) -> str:
 def disclaimer_banner() -> None:
     """Banner de disclaimer visible (no escondido en footer). Llamar en CADA vista con números."""
     st.markdown(
-        f"""
+        """
         <div class="dlp-disclaimer">
           <div class="head">⚠ Proyección probabilística — no es certeza</div>
-          <div class="body">{DISCLAIMER_TEXT}</div>
         </div>
         """,
         unsafe_allow_html=True,

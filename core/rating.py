@@ -63,8 +63,10 @@ def _pos(key: str, v: float) -> float:
         return _clamp(1.0 - v / 0.30)
     if key == "return":         # retorno anual esperado: más es mejor
         return _clamp(v / 0.15)
-    if key == "eff_bets":       # apuestas independientes: más es mejor
-        return _clamp((v - 1.0) / 6.0)
+    if key == "eff_bets":       # apuestas independientes: mejor hasta ~7, luego mesetea
+        if v <= 7.0:            # (más allá, diversificar deja de aportar y diluye retorno)
+            return _clamp((v - 1.0) / 6.0)
+        return _clamp(1.0 - (v - 7.0) * 0.03)
     return 0.5
 
 

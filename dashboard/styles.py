@@ -160,8 +160,21 @@ def inject_css() -> None:
         @keyframes dlpScanLine {{ 0% {{transform:translateX(-100%);}} 100% {{transform:translateX(100%);}} }}
 
         /* ── Base ─────────────────────────────────────────────── */
-        html, body, [data-testid="stAppViewContainer"], .stApp {{
-            background: var(--bg) !important;
+        html, body {{ background: var(--bg) !important; }}
+        /* Lienzo raíz: fondo + cuadrícula de puntos (textura de terminal). Al ser el
+           background del propio lienzo, vive en la capa MÁS BAJA: tarjetas, gráficas,
+           menús y cualquier elemento con fondo la tapan por naturaleza — los puntos
+           solo se ven donde de verdad hay fondo vacío. */
+        [data-testid="stAppViewContainer"] {{
+            background-color: var(--bg) !important;
+            background-image: radial-gradient(circle,
+                rgba(255, 255, 255, 0.10) 1.2px, transparent 1.35px) !important;
+            background-size: 17px 17px !important;
+            background-attachment: fixed !important;
+        }}
+        /* .stApp no debe pintar fondo opaco: taparía la cuadrícula del lienzo. */
+        .stApp {{ background: transparent !important; }}
+        html, body, [data-testid="stAppViewContainer"] {{
             color: var(--text) !important;
             font-family: {FONT_FAMILY} !important;
             -webkit-font-smoothing: antialiased;

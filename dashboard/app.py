@@ -1468,6 +1468,9 @@ def main() -> None:
             else:
                 render_multi(runs, bench, elapsed)
 
+    # Aviso legal: cierra SIEMPRE la pantalla principal, con o sin análisis hecho.
+    components.legal_notice()
+
     if just_computed:
         _scroll_to_results()   # baja solo a la sección de análisis (una vez, tras cargar)
 

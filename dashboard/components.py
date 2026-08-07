@@ -170,6 +170,21 @@ def disclaimer_banner() -> None:
     )
 
 
+def legal_notice() -> None:
+    """Aviso legal del pie de página. Va al final de la pantalla principal, esté o no
+    hecho el análisis: deja claro que la herramienta es educativa y de uso autónomo."""
+    st.markdown(
+        """
+        <div class="dlp-legal">
+          <span class="lbl">Aviso:</span><span class="txt">esto no es asesoría de inversión
+          ni recomendación de inversión de ningún tipo. Estas herramientas son exclusivamente
+          para uso autónomo y educativo.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def sample_data_notice() -> None:
     """Aviso visible de que se están usando datos de muestra (yfinance no respondió)."""
     st.markdown(

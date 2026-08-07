@@ -34,6 +34,12 @@ RED = "#F1495F"          # --neg
 RED_DK = "#D13C50"
 BLUE = "#6FA3E0"         # --info
 BLUE_DK = "#5588C4"
+
+# Aviso legal del pie (tarjeta azul oscuro con letra gris pequeña)
+LEGAL_BG = "#0C1826"     # azul noche, se apoya sobre el fondo sin gritar
+LEGAL_EDGE = "rgba(111,163,224,0.20)"
+LEGAL_LBL = "#7E8794"    # "AVISO:" un punto más claro para que se lea primero
+LEGAL_TXT = "#6B7481"    # gris oscuro: discreto pero legible sobre el azul
 PURPLE = "#9D8CE0"       # --purple (dato categórico)
 
 # ── Texto: rampa de 4 pasos (se acabó la sopa de grises) ────────────────────
@@ -436,6 +442,14 @@ def inject_css() -> None:
         .dlp-sample-warn {{ background:rgba(var(--accent-hi-rgb),.08); border:1px solid rgba(var(--accent-hi-rgb),.45);
             border-left:5px solid {GOLD}; border-radius:10px; padding:12px 16px; margin:10px 0;
             color:{TEXT_MD}; font-size:13.5px; }}
+
+        /* Aviso legal del pie: azul oscuro, letra gris pequeña. Deliberadamente
+           discreto — cierra la página sin competir con el análisis. */
+        .dlp-legal {{ background:{LEGAL_BG}; border:1px solid {LEGAL_EDGE}; border-radius:12px;
+            padding:14px 18px; margin:26px 0 8px; }}
+        .dlp-legal .lbl {{ color:{LEGAL_LBL}; font-family:{MONO}; font-size:11px; font-weight:700;
+            text-transform:uppercase; letter-spacing:.10em; margin-right:6px; }}
+        .dlp-legal .txt {{ color:{LEGAL_TXT}; font-size:11.5px; line-height:1.55; }}
 
         /* ── Botones ──────────────────────────────────────────── */
         /* CTA primario "Analizar": color SÓLIDO + borde nítido dorado + glow en el borde que

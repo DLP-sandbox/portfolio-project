@@ -81,11 +81,128 @@ def search_tickers(query: str, limit: int = 8) -> list[dict]:
              "is_etf": r.is_etf == "Y"} for r in out.itertuples()]
 
 
-def get_name(symbol: str) -> str:
-    """Nombre legible de un símbolo (o el símbolo si no se encuentra)."""
+def get_name_local(symbol: str) -> str:
+    """Nombre desde el directorio local (solo EE.UU.). Nunca toca la red."""
     df = load_directory()
     hit = df[df["_sym_l"] == str(symbol).lower()]
     return hit.iloc[0]["display"] if len(hit) else str(symbol)
+
+
+# ── Búsqueda global (mercados fuera de EE.UU.) ───────────────────────────────
+# El directorio local solo cubre NYSE/NASDAQ. Para ETFs UCITS europeos y acciones
+# de Asia/LatAm se consulta el buscador de Yahoo en vivo, que sí devuelve símbolos
+# con sufijo de mercado (IWDA.AS, 7203.T, PETR4.SA…). Todo va cacheado y dentro de
+# try/except: si no hay red, la búsqueda local sigue funcionando igual que siempre.
+_GLOBAL_TYPES = {"EQUITY", "ETF", "MUTUALFUND", "CRYPTOCURRENCY"}
+_REMOTE_NAMES: dict[str, str] = {}
+
+
+def _clean_remote_name(name: str) -> str:
+    """Los nombres de Yahoo llegan con relleno ('SAP SE            I'). Se colapsan
+    los espacios y se recorta. Solo se aplica a resultados remotos: el directorio
+    local sigue usando `clean_name` tal cual."""
+    return re.sub(r"\s{2,}", " ", str(name or "")).strip(" -")
+
+
+def _search_global(query: str, limit: int = 6) -> list[dict]:
+    try:
+        import yfinance as yf
+
+        quotes = yf.Search(query, max_results=max(limit * 2, 10)).quotes or []
+    except Exception:
+        return []
+    out: list[dict] = []
+    for q in quotes:
+        if len(out) >= limit:
+            break
+        try:
+            sym = str(q.get("symbol") or "").strip()
+            qt = str(q.get("quoteType") or "").upper()
+            if not sym or qt not in _GLOBAL_TYPES:
+                continue
+            # En algunos fondos Yahoo repite el símbolo en `shortname` y deja el
+            # nombre real en `longname`; hay que quedarse con el útil.
+            short = str(q.get("shortname") or "").strip()
+            name = short if short and short.upper() != sym.upper() else q.get("longname")
+            if not name:
+                continue  # sin nombre aprovechable: no sirve para elegir
+            out.append({"symbol": sym, "name": _clean_remote_name(clean_name(name)),
+                        "exchange": str(q.get("exchDisp") or q.get("exchange") or ""),
+                        "is_etf": qt in ("ETF", "MUTUALFUND")})
+        except Exception:
+            continue
+    return out
+
+
+def search_global(query: str, limit: int = 6) -> list[dict]:
+    """Resultados de mercados internacionales (cacheados 1 h). [] si no hay red."""
+    q = (query or "").strip()
+    if len(q) < 2:  # evita una llamada de red en la primera pulsación
+        return []
+    try:
+        import streamlit as st
+
+        res = st.cache_data(show_spinner=False, ttl=3600)(_search_global)(q, limit)
+    except Exception:
+        res = _search_global(q, limit)
+    for r in res or []:
+        _REMOTE_NAMES.setdefault(str(r["symbol"]).upper(), r["name"])
+    return list(res or [])
+
+
+def search_tickers_all(query: str, limit: int = 8) -> list[dict]:
+    """Búsqueda completa: primero el directorio local (instantáneo), después los
+    mercados internacionales. Reserva hasta 3 huecos para que los resultados de
+    fuera de EE.UU. nunca queden desplazados por los locales."""
+    local = search_tickers(query, limit=limit)
+    glob = search_global(query, limit=limit)
+    if not glob:
+        return local
+    reserve = min(3, len(glob))
+    out = list(local[: max(limit - reserve, 1)])
+    seen = {str(r["symbol"]).upper() for r in out}
+    for r in glob:
+        if len(out) >= limit:
+            break
+        if str(r["symbol"]).upper() in seen:
+            continue
+        seen.add(str(r["symbol"]).upper())
+        out.append(r)
+    return out
+
+
+def _remote_name(symbol: str) -> str:
+    try:
+        import yfinance as yf
+
+        info = yf.Ticker(symbol).info or {}
+        # longName primero: es el nombre limpio y completo ("iShares Core MSCI World
+        # UCITS ETF USD (Acc)"); shortName viene truncado y con relleno.
+        return _clean_remote_name(clean_name(info.get("longName") or info.get("shortName") or ""))
+    except Exception:
+        return ""
+
+
+def get_name(symbol: str) -> str:
+    """Nombre legible de un símbolo. Para los que no están en el directorio de
+    EE.UU. (internacionales) resuelve el nombre en vivo y lo cachea."""
+    df = load_directory()
+    hit = df[df["_sym_l"] == str(symbol).lower()]
+    if len(hit):
+        return hit.iloc[0]["display"]
+    s = str(symbol).upper()
+    if s in _REMOTE_NAMES:
+        return _REMOTE_NAMES[s]
+    try:
+        import streamlit as st
+
+        name = st.cache_data(show_spinner=False, ttl=86400)(_remote_name)(s)
+    except Exception:
+        name = _remote_name(s)
+    if name:
+        _REMOTE_NAMES[s] = name
+        return name
+    return str(symbol)
 
 
 # Sets conocidos para clasificar el tipo de activo (para el buscador).

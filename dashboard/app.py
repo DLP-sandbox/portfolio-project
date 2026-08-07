@@ -298,7 +298,7 @@ def num_input(label: str, default: float, key: str, help: str | None = None,
 # ── Buscador + lista + dona (por portafolio) ─────────────────────────────────
 def _ticker_search(query: str):
     """Función de búsqueda en vivo para el st_searchbox: devuelve (etiqueta, símbolo)."""
-    results = tdir.search_tickers((query or "").strip(), limit=8)
+    results = tdir.search_tickers_all((query or "").strip(), limit=8)
     return [(f"{r['symbol']}   ·   {r['name'][:28]}   ·   {r['exchange']} · "
              f"{tdir.classify_type(r['symbol'], r['name'], r.get('is_etf', False))}", r["symbol"])
             for r in results]
@@ -700,6 +700,36 @@ def _exposure_for(inputs: dict) -> dict | None:
         return None
 
 
+def _currency_note(inputs: dict) -> str:
+    """Aviso cuando la cartera tiene activos que no cotizan en dólares. Todas las
+    series se llevan a USD antes de calcular, así que el resultado ya incluye el
+    efecto divisa; conviene que el usuario lo sepa."""
+    try:
+        cur = market_data.currencies_of(inputs.get("tickers") or [])
+        otras = sorted({c for c in cur.values() if c and c != "USD"})
+        if not otras:
+            return ""
+        return ("Incluye activos que cotizan en " + ", ".join(otras) +
+                ". Se convierten a dólares al tipo de cambio de mercado, así que la "
+                "proyección ya incorpora el efecto divisa.")
+    except Exception:
+        return ""
+
+
+def _sync_note(inputs: dict) -> str:
+    """Aviso cuando la cartera opera en bolsas con horarios distintos. Ahí las
+    correlaciones se miden en ventanas semanales: comparar cierres del mismo día
+    entre Tokio y Nueva York las empujaría hacia cero y subestimaría el riesgo."""
+    try:
+        if not market_data._needs_sync_fix(inputs.get("tickers") or []):
+            return ""
+        return ("Tus activos cotizan en bolsas con horarios distintos. Las correlaciones "
+                "se miden en ventanas semanales para no subestimar el riesgo ni exagerar "
+                "la diversificación.")
+    except Exception:
+        return ""
+
+
 # ── Sección "Comparación": tu portafolio vs S&P 500 (siempre disponible) ─────
 def render_benchmark_section(result, inputs, benchmarks, kp) -> None:
     """Comparación de alto valor contra el S&P 500: overlay + métricas cara a cara +
@@ -860,6 +890,12 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
                             unsafe_allow_html=True)
                 st.plotly_chart(charts.asset_class_bar(exp["by_class"]), use_container_width=True,
                                 config={"displayModeBar": False}, key=f"class_{kp}")
+            _cnote = _currency_note(inputs)
+            if _cnote:
+                st.caption(_cnote)
+            _snote = _sync_note(inputs)
+            if _snote:
+                st.caption(_snote)
 
         with components.card(f"res-top-{kp}"):
             components.card_head("◆", "Tus escenarios a futuro", "de peor a mejor")

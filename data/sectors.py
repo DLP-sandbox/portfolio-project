@@ -111,7 +111,7 @@ def _fallback(symbol: str) -> tuple[str, str]:
     if s in _CURATED:
         return _CURATED[s]
     try:
-        name = tdir.get_name(s)
+        name = tdir.get_name_local(s)  # respaldo sin red: nunca consultar en vivo aquí
         df = tdir.load_directory()
         hit = df[df["_sym_l"] == s.lower()]
         is_etf = bool(len(hit)) and hit.iloc[0]["is_etf"] == "Y"
@@ -125,6 +125,26 @@ def _fallback(symbol: str) -> tuple[str, str]:
         return (CLS_STOCK, UNKNOWN)
     except Exception:
         return (CLS_STOCK, UNKNOWN)
+
+
+# Pistas por NOMBRE del fondo, para los que no exponen reparto por sectores.
+# Es la vía de los UCITS de renta fija y materias primas, que no traen `category`.
+_NAME_RULES = [
+    (("bond", "aggregate", "treasury", "gilt", "bund", "fixed income", "sovereign",
+      "govies", "corporate debt", "renta fija"), (CLS_BOND, "Renta fija")),
+    (("gold", "silver", "commodit", "precious metal"), (CLS_COMMOD, "Materias primas")),
+    (("bitcoin", "ethereum", "crypto", "digital asset"), (CLS_CRYPTO, "Cripto")),
+]
+
+
+def _classify_by_name(name: str, default=(CLS_ETF, "Mercado completo")):
+    """(clase, sector) a partir del nombre del fondo. Si nada encaja devuelve
+    `default` — que puede ser None para que quien llama conserve su propio criterio."""
+    n = str(name or "").lower()
+    for keys, res in _NAME_RULES:
+        if any(k in n for k in keys):
+            return res
+    return default
 
 
 def _sector_mix(ticker) -> dict:
@@ -181,7 +201,33 @@ def _fetch_profile(symbol: str) -> dict:
                     top = max(mix.items(), key=lambda x: x[1])[0]
                     return {"symbol": s, "class": cls, "sector": top, "mix": mix}
             return {"symbol": s, "class": cls, "sector": sec, "mix": {sec: 1.0}}
+        # Fondos SIN `category`: es exactamente el caso de los UCITS europeos
+        # (IWDA.AS, VWCE.DE, EIMI.L, AGGH.MI…). Yahoo los deja sin categoría, así que
+        # hasta ahora caían al respaldo y, al no estar en el directorio de EE.UU.,
+        # acababan como "Acciones / Sin clasificar" — un ETF de bonos contando como
+        # renta variable. El reparto real por sectores sí está disponible para ellos.
+        if qt in ("ETF", "MUTUALFUND"):
+            mix = _sector_mix(t)
+            if mix:
+                top = max(mix.items(), key=lambda x: x[1])[0]
+                return {"symbol": s, "class": CLS_ETF, "sector": top, "mix": mix}
+            if s in _CURATED:  # red de seguridad: respeta el mapa ya verificado
+                cls, sec = _CURATED[s]
+                return {"symbol": s, "class": cls, "sector": sec, "mix": {sec: 1.0}}
+            # Sin reparto sectorial: renta fija, materias primas o cripto. Se deduce
+            # del nombre del fondo ("Core Global Aggregate Bond UCITS ETF").
+            cls, sec = _classify_by_name(info.get("longName") or info.get("shortName") or s)
+            return {"symbol": s, "class": cls, "sector": sec, "mix": {sec: 1.0}}
         if qt == "EQUITY":
+            # Los ETC (oro/plata/bitcoin físicos: SGLD.L, IGLN.L, SSLN.L, BTCE.DE) se
+            # declaran como EQUITY y sin sector, así que sin esto contarían como
+            # acciones. Una acción de verdad siempre trae sector y ya salió arriba;
+            # si el nombre no identifica nada, se conserva el criterio de siempre.
+            byname = _classify_by_name(info.get("longName") or info.get("shortName") or "",
+                                       default=None)
+            if byname:
+                cls, sec = byname
+                return {"symbol": s, "class": cls, "sector": sec, "mix": {sec: 1.0}}
             return {"symbol": s, "class": CLS_STOCK, "sector": UNKNOWN, "mix": {UNKNOWN: 1.0}}
     except Exception:
         pass

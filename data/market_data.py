@@ -91,7 +91,142 @@ def _download_prices_live(tickers: tuple[str, ...], window_years: int) -> pd.Dat
     close = close[cols].dropna(how="all").ffill().dropna()
     if close.empty:
         raise RuntimeError("Series de precios vacía tras limpieza")
-    return close
+    return to_usd(close)
+
+
+# ── Normalización de divisa a USD ────────────────────────────────────────────
+# Un ETF europeo cotiza en EUR y una acción japonesa en JPY. Mezclarlos con activos
+# en USD sin convertir da retornos, volatilidad y correlaciones INCORRECTOS: medido
+# sobre IWDA.AS a 3 años, 13,0% de volatilidad anual en EUR frente a 14,5% real en
+# USD. El efecto divisa es riesgo que el inversor asume de verdad, así que todas las
+# series se llevan a USD (la divisa base de toda la app) antes de calcular nada.
+
+# Yahoo distingue mayúsculas: "GBP" son libras y "GBp" son PENIQUES. Londres cotiza
+# muchas acciones en peniques; sin dividir entre 100 entrarían con precios ×100.
+_MINOR_UNITS = {"GBp": ("GBP", 100.0), "ZAc": ("ZAR", 100.0), "ILA": ("ILS", 100.0)}
+
+
+def _currency_of(symbol: str) -> str:
+    """Divisa de cotización del activo. 'USD' si no se puede determinar."""
+    # Atajo sin red: lo que está en el directorio de EE.UU. (NYSE/NASDAQ/Arca)
+    # cotiza en dólares con certeza. Evita una consulta por activo en el caso más
+    # común y deja las carteras estadounidenses exactamente igual de rápidas.
+    try:
+        from data import tickers as tdir
+
+        df = tdir.load_directory()
+        if bool((df["_sym_l"] == str(symbol).lower()).any()):
+            return "USD"
+    except Exception:
+        pass
+    try:
+        import yfinance as yf
+
+        t = yf.Ticker(symbol)
+        cur = None
+        try:  # fast_info es mucho más barato que .info
+            cur = t.fast_info["currency"]
+        except Exception:
+            cur = None
+        if not cur:
+            cur = (t.info or {}).get("currency")
+        return str(cur).strip() if cur else "USD"
+    except Exception:
+        return "USD"
+
+
+def get_currency(symbol: str) -> str:
+    """Divisa del activo, cacheada 24 h (cambia como mucho una vez en la vida)."""
+    try:
+        import streamlit as st
+
+        return st.cache_data(ttl=86400, show_spinner=False)(_currency_of)(symbol)
+    except Exception:
+        return _currency_of(symbol)
+
+
+@_cache
+def _fx_raw(currency: str, start: str, end: str) -> pd.DataFrame:
+    """Serie diaria {divisa}→USD (p.ej. EURUSD=X). DataFrame vacío si no existe."""
+    import yfinance as yf
+
+    raw = yf.download(f"{currency}USD=X", start=start, end=end,
+                      auto_adjust=True, progress=False)
+    if raw is None or len(raw) == 0:
+        return pd.DataFrame()
+    s = raw["Close"] if "Close" in raw else raw
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+    return s.dropna().to_frame(name="fx")
+
+
+def _fx_series(currency: str, index) -> pd.Series | None:
+    """Tipo de cambio alineado al índice de precios (ffill: los festivos de cada
+    plaza no coinciden). Devuelve None si no hay dato — nunca lanza."""
+    try:
+        start = (index.min() - pd.Timedelta(days=10)).strftime("%Y-%m-%d")
+        end = (index.max() + pd.Timedelta(days=2)).strftime("%Y-%m-%d")
+        df = _fx_raw(currency, start, end)
+        if df is None or df.empty:
+            return None
+        s = df["fx"]
+        if getattr(s.index, "tz", None) is not None:
+            s.index = s.index.tz_localize(None)
+        idx = index.tz_localize(None) if getattr(index, "tz", None) is not None else index
+        s = s.reindex(s.index.union(idx)).ffill().bfill().reindex(idx)
+        if s.isna().any():
+            return None
+        s.index = index
+        return s
+    except Exception:
+        return None
+
+
+def to_usd(close: pd.DataFrame) -> pd.DataFrame:
+    """Lleva cada columna de precios a USD.
+
+    Si TODO ya está en USD devuelve el DataFrame INTACTO: una cartera 100%
+    estadounidense recorre exactamente el mismo camino de código que antes.
+    Si falta el tipo de cambio de alguna divisa, esa columna se deja como está
+    en vez de romper el análisis.
+    """
+    try:
+        per_col = {c: _split_currency(get_currency(str(c))) for c in close.columns}
+        if all(cur == "USD" and div == 1.0 for cur, div in per_col.values()):
+            return close
+        out = close.copy()
+        rates = {}
+        for cur in {c for c, _ in per_col.values() if c != "USD"}:
+            rates[cur] = _fx_series(cur, close.index)
+        for col, (cur, div) in per_col.items():
+            if div != 1.0:
+                out[col] = out[col] / div  # peniques → libras
+            if cur == "USD":
+                continue
+            rate = rates.get(cur)
+            if rate is not None:
+                out[col] = out[col] * rate
+        return out
+    except Exception:
+        return close
+
+
+def _split_currency(cur: str) -> tuple[str, float]:
+    """'GBp' → ('GBP', 100.0) · 'eur' → ('EUR', 1.0)."""
+    if cur in _MINOR_UNITS:
+        return _MINOR_UNITS[cur]
+    return (str(cur).upper() or "USD", 1.0)
+
+
+def currencies_of(tickers) -> dict[str, str]:
+    """{ticker: divisa} para avisar en la UI. Silencioso ante cualquier fallo."""
+    out: dict[str, str] = {}
+    for t in tickers or []:
+        try:
+            out[str(t)] = _split_currency(get_currency(str(t)))[0]
+        except Exception:
+            out[str(t)] = "USD"
+    return out
 
 
 def _load_sample_prices(tickers: tuple[str, ...], window_years: int) -> pd.DataFrame:
@@ -135,10 +270,102 @@ def get_price_history(tickers: tuple[str, ...], window_years: int = 10) -> tuple
         return _load_sample_prices(tickers, window_years), True
 
 
+# ── Sincronía entre bolsas (sesgo de cierres a distinta hora) ────────────────
+# Ámsterdam cierra a las 11:30 de Nueva York y Tokio cierra antes de que Wall Street
+# abra. Comparar cierres del MISMO día compara momentos distintos, y eso empuja las
+# correlaciones hacia cero: la app creería que el inversor diversifica cuando repite
+# la misma apuesta (IWDA vs SPY medía 0,48 cuando la real es 0,83). El remedio es
+# medir la correlación en ventanas SEMANALES, donde el desfase de horas se diluye.
+#
+# Solo afecta a las correlaciones: las volatilidades y las medias individuales salen
+# iguales en diario y en semanal (comprobado), así que esas se conservan tal cual.
+MIN_WEEKLY_OBS = 60  # por debajo de esto la estimación semanal es demasiado ruidosa
+
+_SUFFIX_REGION = {
+    # Europa, Oriente Medio y África
+    "L": "EMEA", "AS": "EMEA", "DE": "EMEA", "F": "EMEA", "MI": "EMEA", "MC": "EMEA",
+    "PA": "EMEA", "SW": "EMEA", "BR": "EMEA", "LS": "EMEA", "VI": "EMEA", "ST": "EMEA",
+    "OL": "EMEA", "CO": "EMEA", "HE": "EMEA", "IR": "EMEA", "WA": "EMEA", "AT": "EMEA",
+    "IS": "EMEA", "JO": "EMEA", "TA": "EMEA", "SG": "EMEA", "MU": "EMEA", "DU": "EMEA",
+    "HM": "EMEA", "BE": "EMEA", "XD": "EMEA", "XC": "EMEA", "PR": "EMEA", "BD": "EMEA",
+    # Asia-Pacífico
+    "T": "APAC", "HK": "APAC", "SS": "APAC", "SZ": "APAC", "TW": "APAC", "TWO": "APAC",
+    "KS": "APAC", "KQ": "APAC", "AX": "APAC", "NZ": "APAC", "SI": "APAC", "KL": "APAC",
+    "BK": "APAC", "JK": "APAC", "NS": "APAC", "BO": "APAC", "VN": "APAC",
+    # América (sesión solapada con la de EE.UU.)
+    "SA": "AMER", "MX": "AMER", "TO": "AMER", "V": "AMER", "NE": "AMER", "CN": "AMER",
+    "BA": "AMER", "SN": "AMER", "LM": "AMER",
+}
+
+_CURRENCY_REGION = {
+    "EUR": "EMEA", "GBP": "EMEA", "CHF": "EMEA", "SEK": "EMEA", "NOK": "EMEA",
+    "DKK": "EMEA", "PLN": "EMEA", "ZAR": "EMEA", "TRY": "EMEA", "ILS": "EMEA",
+    "HUF": "EMEA", "CZK": "EMEA", "RON": "EMEA",
+    "JPY": "APAC", "HKD": "APAC", "CNY": "APAC", "TWD": "APAC", "KRW": "APAC",
+    "AUD": "APAC", "NZD": "APAC", "SGD": "APAC", "INR": "APAC", "THB": "APAC",
+    "IDR": "APAC", "MYR": "APAC", "PHP": "APAC",
+}
+
+
+def _region_of(symbol: str) -> str:
+    """Huso de negociación del activo: AMER / EMEA / APAC. Sin llamadas de red.
+
+    Las criptos cuentan como AMER a propósito: se midió que su desfase (cierre a
+    medianoche UTC) va en dirección CONTRARIA al sesgo, así que no hay que corregirlas
+    y las carteras con Bitcoin siguen dando exactamente lo mismo que antes.
+    """
+    s = str(symbol).upper().strip()
+    try:
+        from data import tickers as tdir
+
+        df = tdir.load_directory()
+        if bool((df["_sym_l"] == s.lower()).any()):
+            return "AMER"  # NYSE/NASDAQ/Arca
+    except Exception:
+        pass
+    if "." in s:
+        suf = s.rsplit(".", 1)[-1]
+        if suf in _SUFFIX_REGION:
+            return _SUFFIX_REGION[suf]
+    if s.endswith("-USD") or s.endswith("=X"):
+        return "AMER"  # cripto y divisas: ver docstring
+    try:
+        cur = _split_currency(get_currency(s))[0]
+        return _CURRENCY_REGION.get(cur, "AMER")
+    except Exception:
+        return "AMER"
+
+
+def _needs_sync_fix(symbols) -> bool:
+    """True si la cartera mezcla husos de negociación (único caso con sesgo)."""
+    try:
+        return len({_region_of(s) for s in symbols}) > 1
+    except Exception:
+        return False
+
+
+def _weekly_returns(prices: pd.DataFrame) -> pd.DataFrame | None:
+    """Retornos viernes-a-viernes, o None si no hay observaciones suficientes."""
+    try:
+        wk = prices.resample("W-FRI").last().pct_change().dropna()
+        return wk if len(wk) >= MIN_WEEKLY_OBS else None
+    except Exception:
+        return None
+
+
 def get_returns_frame(tickers: list[str], window_years: int = 10) -> tuple["pd.DataFrame", bool]:
-    """DataFrame de retornos diarios alineados + flag is_sample (para regresiones de beta)."""
+    """DataFrame de retornos alineados + flag is_sample (para regresiones de beta).
+
+    Si la cartera cruza husos de negociación devuelve retornos SEMANALES: la beta es
+    un cociente cov/var, independiente de la frecuencia, así que queda corregida sin
+    tocar `core/stress.py` (la beta de Toyota pasaba de 0,16 a 0,53, su valor real).
+    """
     tkrs = tuple(sanitize_ticker(t) for t in tickers if sanitize_ticker(t))
     prices, is_sample = get_price_history(tkrs, window_years)
+    if _needs_sync_fix(prices.columns):
+        wk = _weekly_returns(prices)
+        if wk is not None:
+            return wk, is_sample
     return prices.pct_change().dropna(), is_sample
 
 
@@ -150,10 +377,25 @@ def get_market_stats(tickers: list[str], window_years: int = 10) -> dict:
     tkrs = tuple(sanitize_ticker(t) for t in tickers if sanitize_ticker(t))
     prices, is_sample = get_price_history(tkrs, window_years)
     returns = prices.pct_change().dropna()
+    cov = returns.cov().to_numpy()
+    # Solo si la cartera cruza husos: Σ = D·C_semanal·D. Se conservan las volatilidades
+    # diarias (insesgadas) y se sustituye la estructura de correlación, que es lo único
+    # que el desfase de horarios distorsiona. Una cartera de EE.UU. no entra aquí.
+    if _needs_sync_fix(prices.columns):
+        wk = _weekly_returns(prices)
+        if wk is not None:
+            try:
+                corr_w = wk[list(prices.columns)].corr().to_numpy()
+                d = np.sqrt(np.diag(cov))
+                fixed = np.outer(d, d) * corr_w
+                if np.all(np.isfinite(fixed)):
+                    cov = fixed
+            except Exception:
+                pass  # ante cualquier problema se mantiene la Σ diaria de siempre
     return {
         "tickers": list(prices.columns),
         "mean_daily": returns.mean().to_numpy(),
-        "cov_daily": returns.cov().to_numpy(),
+        "cov_daily": cov,
         "is_sample": is_sample,
         "n_days": int(len(returns)),
     }

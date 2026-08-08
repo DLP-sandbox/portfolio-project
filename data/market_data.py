@@ -369,6 +369,87 @@ def get_returns_frame(tickers: list[str], window_years: int = 10) -> tuple["pd.D
     return prices.pct_change().dropna(), is_sample
 
 
+# ── Retorno esperado por CAPM (riesgo → retorno) ─────────────────────────────
+# El retorno MEDIO histórico predice muy mal el futuro: proyectarlo tal cual hacía
+# que NVDA (54,3% anual la última década) convirtiera $20.000 en $116 millones a 20
+# años, y que cualquier cartera con el ganador reciente arrasara en la comparación.
+# La volatilidad y las correlaciones sí son persistentes, así que esas se conservan
+# del historial y solo se sustituye la ESPERANZA de retorno:
+#
+#     μ_activo = tasa_libre_de_riesgo + beta × prima_de_mercado
+#
+# La prima sale del propio mercado en la misma ventana, así que el mercado (beta 1)
+# conserva exactamente su retorno histórico y solo se disciplina lo que se desvía de
+# él. Es el estándar de la industria y usa la beta que ya calculamos.
+MARKET_PROXY = "SPY"
+RISK_FREE_FALLBACK = 0.04  # si no se puede leer la letra del Tesoro a 13 semanas
+
+
+def _risk_free_annual() -> float:
+    """Tasa libre de riesgo anual (letra del Tesoro a 13 semanas, ^IRX)."""
+    try:
+        import yfinance as yf
+
+        h = yf.download("^IRX", period="1mo", progress=False, auto_adjust=True)["Close"].dropna()
+        v = float(h.iloc[-1].iloc[0] if hasattr(h.iloc[-1], "iloc") else h.iloc[-1]) / 100.0
+        return v if 0.0 <= v <= 0.20 else RISK_FREE_FALLBACK
+    except Exception:
+        return RISK_FREE_FALLBACK
+
+
+def get_risk_free_annual() -> float:
+    try:
+        import streamlit as st
+
+        return st.cache_data(ttl=86400, show_spinner=False)(_risk_free_annual)()
+    except Exception:
+        return _risk_free_annual()
+
+
+def _capm_mean_daily(prices: pd.DataFrame, returns: pd.DataFrame, window_years: int):
+    """Media diaria esperada por CAPM para cada columna. None si no se puede estimar.
+
+    Las betas se miden en la MISMA frecuencia que las correlaciones: si la cartera
+    cruza husos de negociación se usan retornos semanales, porque la beta diaria de
+    un activo asiático o europeo sale sesgada hacia cero (Toyota: 0,16 frente a 0,53).
+    """
+    try:
+        cols = list(prices.columns)
+        mkt_px, mkt_sample = get_price_history((MARKET_PROXY,), window_years)
+        if mkt_sample or mkt_px.empty:
+            return None
+        weekly = _needs_sync_fix(cols) and _weekly_returns(prices) is not None
+        if weekly:
+            pr = prices.resample("W-FRI").last()
+            mk = mkt_px[MARKET_PROXY].reindex(pr.index).ffill().bfill()
+            r_a, r_m = pr.pct_change().dropna(), mk.pct_change().dropna()
+            per_year = 52.0
+        else:
+            mk = mkt_px[MARKET_PROXY].reindex(prices.index).ffill().bfill()
+            r_a, r_m = returns, mk.pct_change().dropna()
+            per_year = float(TRADING_DAYS_PER_YEAR)
+        idx = r_a.index.intersection(r_m.index)
+        r_a, r_m = r_a.loc[idx], r_m.loc[idx]
+        if len(idx) < 30:
+            return None
+        var_m = float(np.var(r_m.to_numpy(), ddof=1))
+        if var_m <= 0:
+            return None
+        mkt_annual = (1.0 + float(r_m.mean())) ** per_year - 1.0
+        rf = get_risk_free_annual()
+        premium = mkt_annual - rf
+        out = []
+        for c in cols:
+            beta = float(np.cov(r_a[c].to_numpy(), r_m.to_numpy())[0, 1] / var_m)
+            ann = rf + beta * premium
+            ann = float(np.clip(ann, -0.50, 5.0))  # cordura ante datos degenerados
+            out.append((1.0 + ann) ** (1.0 / TRADING_DAYS_PER_YEAR) - 1.0)
+        arr = np.asarray(out, dtype=np.float64)
+        return arr if np.all(np.isfinite(arr)) else None
+    except Exception:
+        return None
+
+
 def get_market_stats(tickers: list[str], window_years: int = 10) -> dict:
     """μ (media diaria), Σ (covarianza diaria) y orden de tickers para el motor.
 
@@ -392,10 +473,19 @@ def get_market_stats(tickers: list[str], window_years: int = 10) -> dict:
                     cov = fixed
             except Exception:
                 pass  # ante cualquier problema se mantiene la Σ diaria de siempre
+    # Retorno esperado por CAPM. Si no se puede estimar (sin red, datos de muestra,
+    # histórico insuficiente) se conserva la media histórica de siempre.
+    mean_daily = returns.mean().to_numpy()
+    expected_from = "historico"
+    if not is_sample:
+        capm = _capm_mean_daily(prices, returns, window_years)
+        if capm is not None and len(capm) == len(mean_daily):
+            mean_daily, expected_from = capm, "capm"
     return {
         "tickers": list(prices.columns),
-        "mean_daily": returns.mean().to_numpy(),
+        "mean_daily": mean_daily,
         "cov_daily": cov,
         "is_sample": is_sample,
         "n_days": int(len(returns)),
+        "expected_from": expected_from,
     }

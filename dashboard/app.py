@@ -562,7 +562,13 @@ def _success_color(prob: float) -> str:
 
 
 def _md_money(text: str) -> str:
-    """Escapa '$' para que Streamlit no lo interprete como LaTeX (solo en markdown puro)."""
+    """Escapa '$' para que Streamlit no lo interprete como LaTeX.
+
+    SOLO para markdown puro (`st.markdown("texto")`). Dentro de HTML crudo NO debe
+    usarse: ahí Streamlit no procesa markdown y la barra invertida se vería literal
+    ("\\$876,208" en pantalla), que es justo lo que pasaba en el veredicto de varios
+    portafolios y en la lectura del modo retiro.
+    """
     return text.replace("$", "\\$")
 
 
@@ -574,7 +580,7 @@ def _lectura_card(color: str, html: str) -> None:
     st.markdown(f"<div class='dlp-card dlp-card-left' style='border-left-color:{color};'>"
                 f"<div class='kpi-label'>Lectura</div>"
                 f"<div style='color:{S.TEXT_MD};font-size:15px;margin-top:8px;line-height:1.55;'>"
-                f"{_md_money(html)}</div></div>", unsafe_allow_html=True)
+                f"{html}</div></div>", unsafe_allow_html=True)
 
 
 # ── Panel de análisis de alto valor (hallazgos + métricas) ───────────────────
@@ -603,7 +609,7 @@ def render_analysis_panel(result, inputs, kp) -> None:
             st.markdown(
                 f"<div class='dlp-card dlp-card-left dlp-analysis-box' style='border-left-color:{S.ORANGE};'>"
                 f"<div class='kpi-label'>¿Qué significa esto?</div>"
-                f"<div class='body'>{_md_money(interpret.interpret_diversification(s))}</div></div>",
+                f"<div class='body'>{interpret.interpret_diversification(s)}</div></div>",
                 unsafe_allow_html=True)
         k1, k2, k3 = st.columns(3, gap="small")
         with k1:
@@ -923,7 +929,7 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             _fine = _parts[-1].strip("_ ") if _parts[-1].lstrip().startswith("_") else ""
             st.markdown(_md_money("\n\n".join(_parts[:-1] if _fine else _parts)))
             if _fine:
-                st.markdown(f"<div class='dlp-fineprint'>{_md_money(_fine)}</div>",
+                st.markdown(f"<div class='dlp-fineprint'>{_fine}</div>",
                             unsafe_allow_html=True)
 
     if sect == "Análisis":
@@ -1309,7 +1315,7 @@ def render_multi(runs: list[dict], benchmarks=None, elapsed=None) -> None:
             bestprob = max(rows, key=lambda x: (x["prob"] or 0))
             v += (f" Para tu meta, el de mayor probabilidad de alcanzarla es "
                   f"{_b(bestprob['name'], S.GOLD)} ({(bestprob['prob'] or 0) * 100:.0f}%).")
-        components.verdict_card(S.GOLD, _md_money(v))
+        components.verdict_card(S.GOLD, v)
 
     with components.card("cand-board"):
         components.card_head("◆", "Ranking de portafolios", "◆ = mejor en cada métrica")

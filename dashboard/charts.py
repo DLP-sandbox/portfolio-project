@@ -461,13 +461,16 @@ def sector_bar(rows: list[dict], max_rows: int = 6) -> go.Figure:
         marker=dict(color=S.ORANGE, cornerradius=4,
                     line=dict(color="rgba(255,255,255,.18)", width=1)),
         text=[f"{p:.0f}%" for p in pcts], textposition="outside",
+        # cliponaxis=False: sin esto Plotly recorta la etiqueta de la barra más larga
+        # en el borde del área de trazado (el "37%" salía como "37").
+        cliponaxis=False,
         textfont=dict(family=S.MONO, color=S.TEXT_MD, size=11),
         hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
     ))
     _apply_dlp_layout(fig, "", "", height=max(200, 30 * len(rows) + 60))
     fig.update_layout(hovermode="closest", margin=dict(l=8, r=44, t=16, b=24))
     fig.update_xaxes(showgrid=False, showticklabels=False, zeroline=False,
-                     range=[0, max(pcts + [1]) * 1.22])
+                     range=[0, max(pcts + [1]) * 1.28])
     fig.update_yaxes(automargin=True, showgrid=False,
                      tickfont=dict(family=S.FONT_FAMILY, color=S.TEXT_MD, size=12))
     return fig

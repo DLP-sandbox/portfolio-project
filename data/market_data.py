@@ -435,9 +435,17 @@ def _capm_mean_daily(prices: pd.DataFrame, returns: pd.DataFrame, window_years: 
         var_m = float(np.var(r_m.to_numpy(), ddof=1))
         if var_m <= 0:
             return None
-        mkt_annual = (1.0 + float(r_m.mean())) ** per_year - 1.0
+        # La PRIMA se mide sobre la ventana COMPLETA de SPY, nunca sobre el tramo
+        # común de la cartera: un activo recién listado (IBIT, enero 2024) recortaba
+        # el historial de TODA la cartera al último bull run y "el mercado" pasaba a
+        # rendir 23,8% anual — con betas >1 eso proyectaba SOXX al 44% y AMD al 50%.
+        # Además va acotada a [3%, 8%], la banda de consenso de la prima de riesgo de
+        # EE.UU.: una década excepcional (buena o mala) no debe volverse "la expectativa".
         rf = get_risk_free_annual()
-        premium = mkt_annual - rf
+        full = mkt_px[MARKET_PROXY].dropna()
+        yrs = max((full.index[-1] - full.index[0]).days / 365.25, 1.0)
+        mkt_cagr = (float(full.iloc[-1]) / float(full.iloc[0])) ** (1.0 / yrs) - 1.0
+        premium = float(np.clip(mkt_cagr - rf, 0.03, 0.08))
         out = []
         for c in cols:
             beta = float(np.cov(r_a[c].to_numpy(), r_m.to_numpy())[0, 1] / var_m)

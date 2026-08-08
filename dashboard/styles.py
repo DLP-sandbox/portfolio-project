@@ -201,8 +201,14 @@ def inject_css() -> None:
             font-variant-numeric: tabular-nums; font-feature-settings: "tnum";
         }}
         [data-testid="stMain"] {{ background: transparent !important; }}
+        /* fill-mode "backwards" (no "both"): con "both" el transform final quedaba
+           aplicado PARA SIEMPRE y eso convierte al contenedor en el marco de referencia
+           de cualquier position:fixed hijo — el loader dejaba de anclarse a la pantalla
+           y scrolleaba con la página. "backwards" da una entrada idéntica frame a frame,
+           pero al terminar suelta el transform y el overlay queda fijo de verdad
+           (mismo comportamiento que DLP Analyzer, cuyo contenedor no se anima). */
         .block-container {{ padding-top: .8rem; padding-bottom: 2rem; max-width: 780px;
-            animation: dlpFadeUp var(--dur-3) var(--dlp-ease-out) both; }}
+            animation: dlpFadeUp var(--dur-3) var(--dlp-ease-out) backwards; }}
         section[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],
         [data-testid="collapsedControl"] {{ display: none !important; }}
         /* Titulares en Inter, sentence-case (fuera el uppercase mono generalizado) */

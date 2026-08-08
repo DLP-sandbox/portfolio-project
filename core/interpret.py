@@ -387,7 +387,10 @@ def pdf_conclusion(result: dict, inputs: dict, benchmarks: list | None = None) -
     if benchmarks:
         try:
             bmed = float(np.median(benchmarks[0]["result"]["final_values"]))
-            vs = "por encima" if p50 >= bmed else "por debajo"
+            # "en línea" cuando la diferencia es <1%: una cartera 100% SPY contra el
+            # propio S&P daba "por encima" siendo idénticas.
+            vs = ("prácticamente en línea" if abs(p50 - bmed) <= 0.01 * max(bmed, 1.0)
+                  else "por encima" if p50 > bmed else "por debajo")
             bench_p = [
                 f"Frente al S&P 500 ({_money(bmed)} de mediana), tu mezcla proyecta {vs} del índice: úsalo como brújula periódica, no como examen diario.",
                 f"La vara del S&P 500 quedó en {_money(bmed)}; tu plan proyecta {vs}. Revisar esa distancia una vez al año es suficiente.",

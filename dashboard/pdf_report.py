@@ -156,6 +156,29 @@ def _disclaimer(c, fonts, top):
     _paragraph(c, x + 22, top + 38, w - 44, DISCLAIMER, fonts["regular"], 13.5, C_MD, leading=18)
 
 
+def prewarm() -> None:
+    """Arranca kaleido en segundo plano al levantar el servidor.
+
+    La PRIMERA imagen que renderiza kaleido cuesta ~6s (levanta su navegador); las
+    siguientes, 0,23s. Como el servicio ya no se duerme, ese arranque se paga una sola
+    vez en la vida del proceso: haciéndolo aquí, ningún usuario lo sufre. Silencioso y
+    tolerante a fallos — si algo va mal, el primer PDF simplemente tarda como antes.
+    """
+    try:
+        import plotly.graph_objects as go
+
+        _ensure_kaleido_launcher()
+        go.Figure().write_image(_tempfile_png(), width=8, height=8, scale=1)
+    except Exception:
+        pass
+
+
+def _tempfile_png() -> str:
+    f = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    f.close()
+    return f.name
+
+
 def _chart_png(fig, w_px, h_px) -> str:
     f = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
     f.close()
@@ -361,13 +384,24 @@ def _page3(c, fonts, result, inputs, exposure, stress):
         c.setFillColor(C_ORANGE)
         c.roundRect(rx + PADX, _y(top + 29), max(bw, 2), 4.5, 2, stroke=0, fill=1)
         top += 40
-    top += 12
+    # La tarjeta acaba en top1+h1 (=510) y las 5 filas de sector dejan el cursor en 402.
+    # Con 3 clases o menos cabe holgado con el espaciado de siempre; con 4 (habitual desde
+    # que se admiten 20 activos) la última fila caía JUSTO sobre el borde, así que ahí se
+    # aprieta. Si hubiera más de 4 clases se agrupa la cola en "Otros" —igual que en los
+    # sectores— para no ocultar ninguna en silencio.
+    _clsrows = list((exposure or {}).get("by_class", []))
+    if len(_clsrows) > 4:
+        _clsrows = _clsrows[:3] + [{"name": "Otros",
+                                    "pct": sum(float(r["pct"]) for r in _clsrows[3:])}]
+    _tight = len(_clsrows) >= 4
+    _step = 21 if _tight else 24
+    top += 6 if _tight else 12
     _text(c, rx + PADX, top, "POR TIPO DE ACTIVO", fonts["medium"], 12, C_LO)
-    top += 24
-    for row in (exposure or {}).get("by_class", [])[:4]:
+    top += _step
+    for row in _clsrows:
         _text(c, rx + PADX, top, row["name"][:20], fonts["regular"], 12.5, C_MD)
         _text(c, rx + rw - PADX, top, f"{row['pct']:.0f}%", fonts["bold"], 12.5, C_HI, right=True)
-        top += 24
+        top += _step
 
     # ── Fila 2: lectura de la estructura + hallazgos clave ───────────────────
     top2, h2 = top1 + h1 + GUT, 150

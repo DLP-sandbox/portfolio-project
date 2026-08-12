@@ -245,6 +245,26 @@ def get_asset_profile(symbol: str) -> dict:
         return _fetch_profile(symbol)
 
 
+def _prefetch_profiles(symbols) -> None:
+    """Resuelve en paralelo los perfiles que aún no estén en caché.
+
+    Cada perfil es una consulta de RED a yfinance; en serie, 20 activos costaban ~6,9s.
+    Al ser espera de red (no cálculo) los hilos no compiten por CPU, así que rinde
+    igual en un servidor de 0,5 núcleos. Solo calienta la caché: `get_asset_profile`
+    sigue siendo la única puerta de entrada y el bucle de abajo no cambia.
+    """
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+
+        uniq = list(dict.fromkeys(str(s) for s in symbols if s))
+        if len(uniq) < 2:
+            return
+        with ThreadPoolExecutor(max_workers=min(8, len(uniq))) as ex:
+            list(ex.map(get_asset_profile, uniq))
+    except Exception:
+        pass  # si falla, el bucle resuelve uno a uno como siempre
+
+
 def portfolio_exposure(items: list[dict]) -> dict:
     """Exposición del portafolio ponderada por el capital de cada activo.
 
@@ -254,6 +274,8 @@ def portfolio_exposure(items: list[dict]) -> dict:
     total = sum(max(float(it.get("weight", 0)), 0.0) for it in items) or 1.0
     sec: dict[str, float] = {}
     cls: dict[str, float] = {}
+    _prefetch_profiles([it["symbol"] for it in items
+                        if max(float(it.get("weight", 0)), 0.0) > 0])
     for it in items:
         amt = max(float(it.get("weight", 0)), 0.0)
         if amt <= 0:

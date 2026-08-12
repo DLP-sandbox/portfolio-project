@@ -270,7 +270,25 @@ def comparison_fan_chart(scenarios: list[dict], n_months: int, target: float | N
 
 
 # Colores distintos por slice del portafolio (el primero es el brand)
-DONUT_COLORS = [S.ORANGE, S.BLUE, S.PURPLE, S.GREEN, S.GOLD, S.TEXT_LO, S.RED, S.ORANGE_DK]
+# Los 8 PRIMEROS son los de siempre y en el mismo orden: un portafolio de hasta 8
+# activos se ve exactamente igual que antes. Los 12 siguientes extienden la paleta
+# hasta el nuevo tope de 20, en el mismo registro apagado del tema (nada estridente)
+# y alternando familia de color para que dos porciones vecinas nunca se confundan.
+DONUT_COLORS = [
+    S.ORANGE, S.BLUE, S.PURPLE, S.GREEN, S.GOLD, S.TEXT_LO, S.RED, S.ORANGE_DK,
+    "#4FBFB0",  # verde azulado
+    "#E08CA8",  # rosa apagado
+    S.BLUE_DK,
+    "#D9C48A",  # arena
+    S.GREEN_DK,
+    "#B9A9F0",  # lavanda
+    "#B87A3E",  # bronce
+    "#6BB8D6",  # cian polvoriento
+    S.RED_DK,
+    "#8FBF7A",  # salvia
+    "#7C8AA6",  # azul pizarra
+    "#B98BA8",  # malva
+]
 
 
 def allocation_donut(items: list[dict], lead_color: str | None = None) -> go.Figure:

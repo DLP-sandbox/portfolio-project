@@ -35,8 +35,31 @@ DEFAULT_B = [
     {"symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "weight": 6_000.0},
     {"symbol": "BND", "name": "Vanguard Total Bond Market ETF", "weight": 4_000.0},
 ]
-MAX_ASSETS = 8
+MAX_ASSETS = 20
 BENCHMARK_SPECS = [("S&P 500", ["SPY"], [100.0])]   # benchmark único, SIEMPRE activo
+
+
+@st.cache_resource(show_spinner=False)
+def _prewarm_once():
+    """Calienta kaleido UNA vez por proceso, en segundo plano y sin bloquear el arranque.
+
+    El servicio ya no se duerme, así que el proceso vive: pagando aquí el arranque del
+    renderizador (~6s) el primer análisis deja de costarlo. `cache_resource` garantiza
+    que se lance una sola vez aunque haya muchas sesiones.
+    """
+    import threading
+
+    def _run():
+        try:
+            from dashboard import pdf_report
+
+            pdf_report.prewarm()
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
 
 # Acceso Fase 2: el link con ?fase2=1 (o ?f2) muestra una portada con clave. El link
 # normal (sin el parámetro) entra directo, sin cambios. La clave se puede configurar con
@@ -226,7 +249,25 @@ def _free_pid() -> str | None:
     return next((p for p in PIDS if p not in pfs), None)
 
 
+def _clear_amount_widgets(pid: str, symbol: str | None = None) -> None:
+    """Borra el estado de las casillas de dinero de un portafolio (o de un activo).
+
+    `money_input` solo inicializa su valor si la clave NO existe, y el armador
+    sincroniza los montos DESDE esas claves. Si quedan huérfanas, mandan ellas: al
+    importar un archivo, un activo que ya estuviera en pantalla conservaba su monto
+    viejo (el SPY de $10.000 por defecto se comía el 51% de una cartera importada al
+    5%), y al quitar y volver a añadir un activo reaparecía el importe anterior.
+    """
+    pref = f"pw_{pid}_{symbol}__" if symbol else f"pw_{pid}_"
+    for k in [k for k in list(st.session_state.keys())
+              if k.startswith(pref) and (k.endswith("__raw") or k.endswith("__txt"))]:
+        st.session_state.pop(k, None)
+
+
 def set_portfolio(pid: str, symbols: list[str], weights: list[float]) -> None:
+    # Reemplazo completo del portafolio: los montos que manda el llamador son la
+    # verdad, así que se limpia el estado de las casillas para que se reinicialicen.
+    _clear_amount_widgets(pid)
     st.session_state.portfolios[pid] = [
         {"symbol": s, "name": tdir.get_name(s), "weight": float(w)} for s, w in zip(symbols, weights)]
 
@@ -364,6 +405,7 @@ def render_portfolio_builder(pid: str) -> tuple[list[str], list[float], float]:
                 it["weight"] = money_input(float(it["weight"]), f"pw_{pid}_{it['symbol']}")
             if wc3.button("✕", key=f"rm_{pid}_{it['symbol']}", use_container_width=True):
                 st.session_state.portfolios[pid] = [x for x in pf if x["symbol"] != it["symbol"]]
+                _clear_amount_widgets(pid, it["symbol"])  # si vuelve, entra limpio
                 st.rerun()
 
         if total_w > 0:
@@ -1398,6 +1440,7 @@ def main() -> None:
     st.set_page_config(page_title="Analista de Portafolios", page_icon="◈",
                        layout="centered", initial_sidebar_state="collapsed")
     inject_css()
+    _prewarm_once()           # calienta el renderizador del PDF en segundo plano
     S.disable_context_menu()  # bloquea el menú de clic derecho en toda la app
     _require_fase2_access()   # portada con clave SOLO en el link ?fase2 (el normal no cambia)
     _require_password()
@@ -1419,7 +1462,10 @@ def main() -> None:
             loader.empty()
             st.error(f"No se encontraron en el mercado: {', '.join(invalid)}. Quítalos o corrígelos.")
         else:
-            target = random.uniform(9.0, 15.0)
+            # Suelo de tiempo del loader. El trabajo real ronda 2-3s (kaleido ya viene
+            # caliente y las consultas de red van en paralelo); este objetivo deja que
+            # el proceso se vea sin inventar espera de más. Antes eran 9-15s.
+            target = random.uniform(5.0, 6.0)
             t0 = time.perf_counter()
             # PIPELINE ÚNICO: mismo `base` (Opciones avanzadas incluidas) + extras para TODOS
             # los portafolios, vengan del armador manual o de un archivo.
@@ -1444,7 +1490,9 @@ def main() -> None:
                 pdf_bytes = pdf_report.generate_report(runs[0]["result"], runs[0]["inputs"], benchmarks)
             except Exception:
                 pdf_bytes = None
-            remaining = max(target - (time.perf_counter() - t0), 2.0)
+            # Si el trabajo ya se pasó del objetivo, solo queda el cierre del anillo
+            # hasta el 100% (antes se añadían 2s completos por encima).
+            remaining = max(target - (time.perf_counter() - t0), 0.9)
             steps = max(int(remaining / 0.09), 20)
             for i in range(steps + 1):
                 loader.markdown(components.progress_overlay(round(i / steps * 100), _loader_msg(round(i / steps * 100))),

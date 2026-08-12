@@ -401,6 +401,7 @@ def get_returns_frame(tickers: list[str], window_years: int = 10) -> tuple["pd.D
 # él. Es el estándar de la industria y usa la beta que ya calculamos.
 MARKET_PROXY = "SPY"
 RISK_FREE_FALLBACK = 0.04  # si no se puede leer la letra del Tesoro a 13 semanas
+BETA_WINDOW_DAYS = 1260    # ~5 años: tope para la beta de activos con desfase horario
 
 
 def _risk_free_annual() -> float:
@@ -424,28 +425,52 @@ def get_risk_free_annual() -> float:
         return _risk_free_annual()
 
 
+def _dimson_beta(asset_ret: pd.Series, mkt_ret: pd.Series):
+    """Beta de Dimson: suma de las betas contra el mercado en t-1, t y t+1.
+
+    Cuando una bolsa cierra antes que Nueva York, parte de su reacción al mercado
+    americano aparece al día siguiente. La beta diaria simple se pierde ese trozo y
+    sale hundida; sumando los retardos se recupera. Devuelve None si no hay datos
+    suficientes, para que el llamador use la beta simple.
+    """
+    try:
+        total = 0.0
+        for k in (-1, 0, 1):
+            pair = pd.concat([asset_ret, mkt_ret.shift(k)], axis=1).dropna()
+            if len(pair) < 30:
+                return None
+            m = pair.iloc[:, 1].to_numpy()
+            v = float(np.var(m, ddof=1))
+            if v <= 0:
+                return None
+            total += float(np.cov(pair.iloc[:, 0].to_numpy(), m)[0, 1] / v)
+        return total if np.isfinite(total) else None
+    except Exception:
+        return None
+
+
 def _capm_mean_daily(prices: pd.DataFrame, returns: pd.DataFrame, window_years: int):
     """Media diaria esperada por CAPM para cada columna. None si no se puede estimar.
 
-    Las betas se miden en la MISMA frecuencia que las correlaciones: si la cartera
-    cruza husos de negociación se usan retornos semanales, porque la beta diaria de
-    un activo asiático o europeo sale sesgada hacia cero (Toyota: 0,16 frente a 0,53).
+    La beta se mide contra el MERCADO (SPY), que opera en horario de Nueva York. Lo
+    que decide el método no es si la cartera mezcla husos entre sí, sino si CADA
+    activo es sincrónico con ese mercado: una cartera de un solo ETF europeo no
+    "mezcla" nada, pero su cierre es 4,5h anterior al de Wall Street. Ahí la beta
+    diaria simple sale hundida (CSPX, que replica el S&P 500, daba 0,49 en vez de
+    ~1,00 y la app le proyectaba 8,0% frente al 11,7% del propio índice).
+
+    Para los activos que no cotizan en horario americano se usa la beta de Dimson
+    —suma de las betas en t-1, t y t+1—, que recoge la reacción retrasada al cierre
+    de Nueva York (CSPX pasa a 0,93). Los activos americanos conservan la beta
+    diaria de siempre, así que las carteras de EE.UU. no cambian ni un decimal.
     """
     try:
         cols = list(prices.columns)
         mkt_px, mkt_sample = get_price_history((MARKET_PROXY,), window_years)
         if mkt_sample or mkt_px.empty:
             return None
-        weekly = _needs_sync_fix(cols) and _weekly_returns(prices) is not None
-        if weekly:
-            pr = prices.resample("W-FRI").last()
-            mk = mkt_px[MARKET_PROXY].reindex(pr.index).ffill().bfill()
-            r_a, r_m = pr.pct_change().dropna(), mk.pct_change().dropna()
-            per_year = 52.0
-        else:
-            mk = mkt_px[MARKET_PROXY].reindex(prices.index).ffill().bfill()
-            r_a, r_m = returns, mk.pct_change().dropna()
-            per_year = float(TRADING_DAYS_PER_YEAR)
+        mk = mkt_px[MARKET_PROXY].reindex(prices.index).ffill().bfill()
+        r_a, r_m = returns, mk.pct_change().dropna()
         idx = r_a.index.intersection(r_m.index)
         r_a, r_m = r_a.loc[idx], r_m.loc[idx]
         if len(idx) < 30:
@@ -466,7 +491,20 @@ def _capm_mean_daily(prices: pd.DataFrame, returns: pd.DataFrame, window_years: 
         premium = float(np.clip(mkt_cagr - rf, 0.03, 0.08))
         out = []
         for c in cols:
-            beta = float(np.cov(r_a[c].to_numpy(), r_m.to_numpy())[0, 1] / var_m)
+            if _region_of(c) == "AMER":     # mismo horario que SPY: beta de siempre
+                beta = float(np.cov(r_a[c].to_numpy(), r_m.to_numpy())[0, 1] / var_m)
+            else:                            # cierra a otra hora: beta de Dimson
+                # Y sobre los ~5 últimos años, no sobre los 10: con desfase horario la
+                # ventana larga mide PEOR (CSPX: 0,78 a 10 años frente a 0,93 a 5, cuando
+                # la real es ~1,00 porque tiene las mismas acciones que el S&P 500).
+                # 1.260 días ya son de sobra estadísticamente, y las betas que deben ser
+                # bajas —bonos, oro, Nestlé— no se mueven.
+                a_c, m_c = r_a[c], r_m
+                if len(m_c) > BETA_WINDOW_DAYS:
+                    a_c, m_c = a_c.iloc[-BETA_WINDOW_DAYS:], m_c.iloc[-BETA_WINDOW_DAYS:]
+                beta = _dimson_beta(a_c, m_c)
+                if beta is None:
+                    beta = float(np.cov(r_a[c].to_numpy(), r_m.to_numpy())[0, 1] / var_m)
             ann = rf + beta * premium
             ann = float(np.clip(ann, -0.50, 5.0))  # cordura ante datos degenerados
             out.append((1.0 + ann) ** (1.0 / TRADING_DAYS_PER_YEAR) - 1.0)

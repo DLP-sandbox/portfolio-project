@@ -66,7 +66,7 @@ def _prewarm_once():
 # el secret/env FASE2_PASSWORD; si no está, se usa el default de abajo (cambiable).
 FASE2_QUERY_KEYS = ("fase2", "f2")
 DEFAULT_FASE2_PASSWORD = "bienvenidofase2"
-PCOLOR = {"A": S.ORANGE, "B": S.BLUE, "C": S.PURPLE}  # acento · info · púrpura (categóricos)
+PCOLOR = {"A": S.SERIES_A, "B": S.SERIES_B, "C": S.SERIES_C}  # identidades de DATOS validadas (all-pairs)
 PLABEL = {"A": "Portafolio 1", "B": "Portafolio 2", "C": "Portafolio 3"}
 PIDS = ("A", "B", "C")          # orden fijo de slots
 MAX_PORTFOLIOS = 3
@@ -212,15 +212,8 @@ def _build_extras(inputs: dict, result: dict) -> dict:
                                                      inputs["historical_window_years"])
         except Exception:
             extras["stress"] = None
-    if inputs.get("show_sequence"):
-        try:
-            stats = market_data.get_market_stats(inputs["tickers"], inputs["historical_window_years"])
-            am, asd = sequence.portfolio_annual_moments(stats, inputs["weights"])
-            extras["sequence"] = sequence.sequence_demo(
-                inputs["initial_capital"], inputs["monthly_contribution"],
-                inputs["horizon_years"], am, asd, inputs["random_seed"])
-        except Exception:
-            extras["sequence"] = None
+    # extras["sequence"] eliminado: se calculaba y NUNCA se renderizaba (ni en la app ni
+    # en el PDF). El flag "show_sequence" sigue existiendo en base para no mover firmas.
     return extras
 
 
@@ -358,12 +351,29 @@ def render_portfolio_builder(pid: str) -> tuple[list[str], list[float], float]:
             it["weight"] = float(st.session_state[rawk])
     total_w = sum(max(it["weight"], 0) for it in pf)
 
-    left, right = st.columns([1.15, 1], gap="large")
+    left, right = st.columns([1.4, 1], gap="medium")
     with left:
         # Buscador EN VIVO (por tecla): escribe símbolo o nombre y aparecen los resultados;
         # al elegir uno se añade. clear_on_submit limpia el campo para la siguiente búsqueda.
-        selected = st_searchbox(_ticker_search, placeholder="Buscar ticker…",
-                                key=f"q_{pid}", clear_on_submit=True, debounce=180)
+        selected = st_searchbox(
+            _ticker_search, placeholder="Buscar ticker…  (símbolo o nombre)",
+            key=f"q_{pid}", clear_on_submit=True, debounce=180,
+            style_overrides={
+                "clear": {"fill": "#8D949E"},
+                "dropdown": {"fill": "#E2B25C"},
+                "searchbox": {
+                    "control": {"backgroundColor": "#1A1F27",
+                                "border": "1px solid rgba(255,255,255,0.16)",
+                                "borderRadius": "12px", "boxShadow": "none"},
+                    "input": {"color": "#F2F3F5"},
+                    "placeholder": {"color": "#9AA1AB"},
+                    "singleValue": {"color": "#F2F3F5"},
+                    "menuList": {"backgroundColor": "#12151B",
+                                 "border": "1px solid rgba(226,178,92,0.30)"},
+                    "option": {"backgroundColor": "#12151B", "color": "#C9CDD3",
+                               "highlightColor": "rgba(226,178,92,0.14)"},
+                },
+            })
         if not selected:
             st.session_state.pop(f"_added_{pid}", None)
         elif selected != st.session_state.get(f"_added_{pid}"):
@@ -380,8 +390,9 @@ def render_portfolio_builder(pid: str) -> tuple[list[str], list[float], float]:
                             "font-family:JetBrains Mono,monospace;font-size:12.5px;'>"
                             "Elige activos para ver<br>la composición</div>", unsafe_allow_html=True)
 
-    # "En tu portafolio" — ancho completo de la tarjeta, en una sub-card metálica.
-    with st.container(key=f"holdings_{pid}"):
+    # "En tu portafolio" — DENTRO de la columna izquierda, bajo el buscador: el bento
+    # aprovecha el alto de la dona en vez de dejar la izquierda vacía.
+    with left, st.container(key=f"holdings_{pid}"):
         hc1, hc2, hc3 = st.columns([3, 2, 1])
         hc1.markdown("<div class='dlp-side-title' style='margin:0'>En tu portafolio</div>",
                      unsafe_allow_html=True)
@@ -487,20 +498,16 @@ def render_candidate_importer() -> None:
 # ── Inputs (plan compartido + A/B + avanzadas) ───────────────────────────────
 def render_inputs() -> dict | None:
     _init_portfolios()
-    pfA = st.session_state.portfolios["A"]
-    a_ok = bool(pfA) and sum(max(it["weight"], 0) for it in pfA) > 0
-    components.stepper(a_ok)
-
     with components.card("plan"):
         components.card_head("◆", "Tu plan", "el capital sale de lo que inviertes en cada activo")
-        c1, c2 = st.columns(2)
+        # 3 columnas: se acabó el tercio muerto que dejaba el slider a media fila
+        c1, c2, c3 = st.columns(3, gap="medium")
         with c1:
             aporte = num_input("Aporte mensual (USD)", 500, "aporte", min_value=0,
                                help="Cuánto sumas cada mes. El hábito de aportar es lo que más mueve el resultado.")
         with c2:
             meta = num_input("Meta final (USD, opcional)", 0, "meta", min_value=0,
                              help="Opcional: el patrimonio que te gustaría alcanzar. Verás la probabilidad de lograrlo.")
-        c3, c4 = st.columns([2, 1])
         with c3:
             horizonte = st.slider("Horizonte (años)", min_value=1, max_value=40, value=20,
                                   help="Por cuántos años proyectas. Más tiempo = más interés compuesto y más incertidumbre.")
@@ -550,9 +557,14 @@ def render_inputs() -> dict | None:
     clicked = st.button(label, type="primary", use_container_width=True)
 
     # "Subir portafolio con archivo" — entre Analizar y Opciones avanzadas.
-    render_candidate_importer()
+    # Pareja [importar archivo | opciones avanzadas]: dos utilidades secundarias que
+    # no merecen una fila completa cada una. Bajo 900px el namespace pair- las apila.
+    with st.container(key="pair-utils"):
+        uc1, uc2 = st.columns(2, gap="medium")
+    with uc1:
+        render_candidate_importer()
 
-    with st.expander("Opciones avanzadas"):
+    with uc2, st.expander("Opciones avanzadas"):
         dist_label = st.radio("Modelo de retornos", ["Normal", "t-Student (colas gordas)"],
                               horizontal=True,
                               help="t-Student suma realismo a caídas y extremos de corto/mediano plazo; "
@@ -644,9 +656,12 @@ def render_analysis_panel(result, inputs, kp) -> None:
         # Arriba: tacómetro (izq., compacto) + análisis (der.). Abajo: los 3 indicadores en fila.
         g, an = st.columns([1, 1.25], gap="medium")
         with g:
-            st.plotly_chart(charts.diversification_meter(s["wavg_corr"], height=196),
-                            use_container_width=True, config={"displayModeBar": False},
-                            key=f"an_div_{kp}")
+            _corr = float(s["wavg_corr"])
+            _dcol = S.GREEN if _corr < 0.45 else (S.ORANGE if _corr < 0.75 else S.RED)
+            components.meter_stat("Correlación media del portafolio", f"{_corr:.2f}", _dcol,
+                                  pos=1.0 - max(0.0, min(_corr, 1.0)),
+                                  sub="0 = motores independientes · 1 = todo se mueve junto",
+                                  ends=("todo junto", "independientes"))
         with an:
             st.markdown(
                 f"<div class='dlp-card dlp-card-left dlp-analysis-box' style='border-left-color:{S.ORANGE};'>"
@@ -686,8 +701,12 @@ def render_analysis_panel(result, inputs, kp) -> None:
     # 3) LOS CINCO HALLAZGOS CLAVE — solo los 5 más importantes.
     with components.card(f"an-find-{kp}"):
         components.card_head("◆", "Los cinco hallazgos clave", "lo que más importa, en claro")
-        for fd in findings[:5]:
-            components.finding_card(fd)
+        _f5 = findings[:5]
+        with st.container(key=f"pair-find-{kp}"):
+            fcol1, fcol2 = st.columns(2, gap="small")
+        for _i, fd in enumerate(_f5):
+            with (fcol1 if _i % 2 == 0 else fcol2):
+                components.finding_card(fd)
 
     # 4) RETORNO, RIESGO Y LO QUE PUEDES PERDER — tiles con termómetro.
     with components.card(f"an-metrics-{kp}"):
@@ -806,7 +825,9 @@ def render_benchmark_section(result, inputs, benchmarks, kp) -> None:
     bs = (bres.get("analysis") or {}).get("structure", {})
     med = float(np.percentile(fv, 50))
     bmed = float(np.percentile(bfv, 50))
-    with components.card(f"cmp-kpis-{kp}"):
+    with st.container(key=f"pair-cmp-{kp}"):
+        cmpl, cmpr = st.columns([1.5, 1], gap="medium")
+    with cmpl, components.card(f"cmp-kpis-{kp}"):
         components.card_head("◆", "Cara a cara", "tú vs el índice, con calificación")
         m1 = st.columns(3)
         with m1[0]:
@@ -853,7 +874,7 @@ def render_benchmark_section(result, inputs, benchmarks, kp) -> None:
                                          "termina por encima del S&P 500. Estimación, no garantía.",
                                     rating=rating.rate("prob_beat", prob_beat))
 
-    with components.card(f"cmp-read-{kp}"):
+    with cmpr, components.card(f"cmp-read-{kp}"):
         components.card_head("◆", "¿Qué dice esta comparación?")
         st.markdown(_md_money(interpret.interpret_benchmark(result, inputs, bench, prob_beat)))
 
@@ -880,18 +901,6 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             highlight_label=f"Mediana a {years} años",
             highlight_value=components.fmt_money(p50), highlight_color=S.ORANGE)
         components.disclaimer_banner()
-
-    if retirement:
-        ruin = result["probability_of_ruin"]
-        takeaway = (f"Retirando {_b(components.fmt_money(abs(inputs['monthly_contribution'])) + ' por mes')} durante "
-                    f"{_b(str(years) + ' años')}, en {_b(f'{ruin*100:.0f}%', S.RED)} de los escenarios te quedas "
-                    f"sin dinero antes de tiempo. Lo más probable es terminar con {_b(components.fmt_money(p50), S.ORANGE)}.")
-    else:
-        takeaway = (f"En {_b(str(years) + ' años')}, lo más probable es llegar a "
-                    f"{_b(components.fmt_money(p50), S.ORANGE)}. En la mitad de los escenarios terminas entre "
-                    f"{_b(components.fmt_money(p25))} y {_b(components.fmt_money(p75))}; en casos extremos, entre "
-                    f"{_b(components.fmt_money(p5), S.RED)} (si va mal) y "
-                    f"{_b(components.fmt_money(p95), S.GREEN)} (si va bien).")
 
     # Secciones con estado PROPIO por portafolio (st.tabs no acepta `key` y se reinicia al
     # cambiar de portafolio). Con segmented_control keyed, cada portafolio recuerda en qué
@@ -945,7 +954,9 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             if _snote:
                 st.caption(_snote)
 
-        with components.card(f"res-top-{kp}"):
+        with st.container(key=f"pair-res-{kp}"):
+            resl, resr = st.columns([1.25, 1], gap="medium")
+        with resl, components.card(f"res-top-{kp}"):
             components.card_head("◆", "Tus escenarios a futuro", "de peor a mejor")
             # Los 3 escenarios en UNA fila horizontal, mismo alto y ancho
             k1, k2, k3 = st.columns(3, gap="small")
@@ -964,7 +975,7 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
                                     help="Percentil 95: solo 1 de cada 20 escenarios terminó mejor que esto. "
                                          "Tu 'si va bien' razonable, no el mejor caso absoluto.",
                                     rating=rating.rating(0.87, "Optimista"))
-        with components.card(f"res-interp-{kp}"):
+        with resr, components.card(f"res-interp-{kp}"):
             components.card_head("◆", "¿Qué significa esto?")
             _txt = interpret.interpret_locally(result, inputs, extras.get("stress"))
             _parts = _txt.split("\n\n")
@@ -988,8 +999,11 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             with components.card(f"dist-ruin-{kp}"):
                 components.card_head("◆", "Riesgo de ruina (modo retiro)")
                 g, t = st.columns([1, 1])
-                g.plotly_chart(charts.ruin_gauge(ruin), use_container_width=True,
-                               config={"displayModeBar": False}, key=f"ruin_{kp}")
+                with g:
+                    components.meter_stat("Probabilidad de ruina", f"{ruin*100:.0f}%", col,
+                                          pos=1.0 - min(ruin / 0.4, 1.0),
+                                          sub=f"escenarios donde el capital se agota antes de {years} años",
+                                          ends=("frágil", "sólido"))
                 with t:
                     _lectura_card(col, f"Retirando {components.fmt_money(abs(inputs['monthly_contribution']))}/mes, "
                                   f"tu capital se agotó antes de los {years} años en "
@@ -999,8 +1013,11 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             with components.card(f"dist-meta-{kp}"):
                 components.card_head("◆", "Probabilidad de alcanzar tu meta")
                 g, t = st.columns([1, 1])
-                g.plotly_chart(charts.success_gauge(prob, f"Meta {components.fmt_money(inputs['target'])}"),
-                               use_container_width=True, config={"displayModeBar": False}, key=f"gauge_{kp}")
+                with g:
+                    components.meter_stat("Probabilidad de lograrla", f"{prob*100:.0f}%",
+                                          _success_color(prob), pos=prob,
+                                          sub=f"meta: {components.fmt_money(inputs['target'])} a {years} años",
+                                          ends=("difícil", "probable"))
                 with t:
                     _lectura_card(_success_color(prob),
                                   f"En <b style='color:{_success_color(prob)}'>{prob*100:.0f}%</b> de los 10.000 "
@@ -1045,18 +1062,17 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
                         help="Tu capital inicial más todos tus aportes a lo largo del horizonte, "
                              "sin contar el rendimiento del mercado. Es lo que sale de tu bolsillo.",
                         rating=rating.rating(0.5, "Referencia"))
-        with components.card(f"risk-interp-{kp}"):
-            components.card_head("◆", "Lectura de tus riesgos")
-            st.markdown(_md_money(interpret.interpret_risks(result, inputs, result.get("analysis"))))
         sd = extras.get("stress")
         if sd:
-            with components.card(f"risk-stress-{kp}"):
+            # Pareja [lectura de riesgos | prueba de estrés]: media pantalla cada una.
+            with st.container(key=f"pair-risk-{kp}"):
+                rl, rr = st.columns([1, 1.45], gap="medium")
+            with rl, components.card(f"risk-interp-{kp}"):
+                components.card_head("◆", "Lectura de tus riesgos")
+                st.markdown(_md_money(interpret.interpret_risks(result, inputs, result.get("analysis"))))
+            with rr, components.card(f"risk-stress-{kp}"):
                 components.card_head("◆", "Cuánto habría caído en un mal momento",
                                      "análisis de estrés real")
-                st.markdown(
-                    f"<div style='color:{S.TEXT_LO};font-size:13px;margin:-4px 0 10px;'>"
-                    f"Esta prueba mide qué tanto caería este portafolio en algunas de las peores "
-                    f"crisis de la historia.</div>", unsafe_allow_html=True)
                 st.plotly_chart(charts.stress_drop_bars(sd), use_container_width=True,
                                 config={"displayModeBar": False}, key=f"stress_{kp}")
                 # Separador + porcentaje bajo CADA barra, alineado con las columnas del chart
@@ -1069,6 +1085,10 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
                             f"<div class='pct'>−{ev['portfolio_drawdown']*100:.0f}%</div></div>",
                             unsafe_allow_html=True)
                 _lectura_card(S.ORANGE, interpret.interpret_stress(sd, result, inputs))
+        else:
+            with components.card(f"risk-interp-{kp}"):
+                components.card_head("◆", "Lectura de tus riesgos")
+                st.markdown(_md_money(interpret.interpret_risks(result, inputs, result.get("analysis"))))
 
     if sect == "Comparación":
         render_benchmark_section(result, inputs, benchmarks, kp)
@@ -1086,8 +1106,8 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
 def _compare_verdict(rA, iA, rB) -> tuple[str, str]:
     medA, medB = (float(np.percentile(rA["final_values"], 50)), float(np.percentile(rB["final_values"], 50)))
     ddA, ddB = rA["max_drawdown_typical"] * 100, rB["max_drawdown_typical"] * 100
-    high, hcol = ("A", S.ORANGE) if medA >= medB else ("B", S.BLUE)
-    low_dd, lcol = ("A", S.ORANGE) if ddA <= ddB else ("B", S.BLUE)
+    high, hcol = ("A", PCOLOR["A"]) if medA >= medB else ("B", PCOLOR["B"])
+    low_dd, lcol = ("A", PCOLOR["A"]) if ddA <= ddB else ("B", PCOLOR["B"])
     m_high, m_low = (medA, medB) if high == "A" else (medB, medA)
     dd_low_val = min(ddA, ddB)
     dd_high_val = max(ddA, ddB)
@@ -1104,7 +1124,7 @@ def _compare_verdict(rA, iA, rB) -> tuple[str, str]:
         lead = S.GOLD
     if iA.get("target"):
         pA, pB = (rA["prob_target"] or 0) * 100, (rB["prob_target"] or 0) * 100
-        bp, bpcol = ("A", S.ORANGE) if pA >= pB else ("B", S.BLUE)
+        bp, bpcol = ("A", PCOLOR["A"]) if pA >= pB else ("B", PCOLOR["B"])
         parts.append(f"Para tu meta, el {_b(_pname(bp), bpcol)} tiene mayor probabilidad de alcanzarla "
                      f"({max(pA, pB):.0f}% vs {min(pA, pB):.0f}%).")
     return " ".join(parts), lead
@@ -1119,8 +1139,9 @@ def _compo(inputs) -> str:
 
 def _side_head(pid: str, med: float, compo: str) -> str:
     col = PCOLOR[pid]
-    return (f"<div class='dlp-side'><div class='nm' style='color:{col}'>{_pname(pid)}</div>"
-            f"<div class='big' style='color:{col}'>{components.fmt_money(med)}</div>"
+    return (f"<div class='dlp-side'><div class='nm' style='color:{col}'>"
+            f"<span style='color:{col}'>●</span> {_pname(pid)}</div>"
+            f"<div class='big' style='color:{S.TEXT_HI}'>{components.fmt_money(med)}</div>"
             f"<div class='sub'>mediana · {compo}</div></div>")
 
 
@@ -1159,11 +1180,11 @@ def _metric_bars(rA, rB, iA) -> str:
         bw = " m-win" if not a_win else ""
         html += (
             f"<div class='dlp-vsm'><div class='m-lbl'>{name}</div>"
-            f"<div class='m-row'><span class='m-tag' style='color:{S.ORANGE}'>A</span>"
-            f"<div class='m-track'><div class='m-fill' style='width:{wa:.0f}%;background:{S.ORANGE}'></div></div>"
+            f"<div class='m-row'><span class='m-tag' style='color:{PCOLOR['A']}'>A</span>"
+            f"<div class='m-track'><div class='m-fill' style='width:{wa:.0f}%;background:{PCOLOR['A']}'></div></div>"
             f"<span class='m-val{aw}'>{fmt(a, kind)}</span></div>"
-            f"<div class='m-row'><span class='m-tag' style='color:{S.BLUE}'>B</span>"
-            f"<div class='m-track'><div class='m-fill' style='width:{wb:.0f}%;background:{S.BLUE}'></div></div>"
+            f"<div class='m-row'><span class='m-tag' style='color:{PCOLOR['B']}'>B</span>"
+            f"<div class='m-track'><div class='m-fill' style='width:{wb:.0f}%;background:{PCOLOR['B']}'></div></div>"
             f"<span class='m-val{bw}'>{fmt(b, kind)}</span></div></div>")
     return html
 
@@ -1175,31 +1196,32 @@ def render_compare(rA, iA, exA, rB, iB, exB, benchmarks, elapsed=None) -> None:
     itemsA = [{"symbol": t, "weight": w * 100} for t, w in zip(iA["tickers"], iA["weights"])]
     itemsB = [{"symbol": t, "weight": w * 100} for t, w in zip(iB["tickers"], iB["weights"])]
 
-    # Cara a cara: A · VS · B con dona e identidad de color
-    with components.card("cmp-vs"):
+    # Pareja [cara a cara | veredicto]: el VS y el juicio conviven en una fila
+    with st.container(key="pair-cmpvs"):
+        pcl, pcr = st.columns([1.35, 1], gap="medium")
+    with pcl, components.card("cmp-vs"):
         components.card_head("◆", "Cara a cara", "Portafolio A vs Portafolio B")
-        ca, cv, cb = st.columns([1, 0.22, 1])
+        ca, cv, cb = st.columns([1, 0.18, 1])
         with ca:
             st.markdown(_side_head("A", medA, _compo(iA)), unsafe_allow_html=True)
-            st.plotly_chart(charts.allocation_donut(itemsA, lead_color=S.ORANGE), use_container_width=True,
+            st.plotly_chart(charts.allocation_donut(itemsA, lead_color=PCOLOR["A"]), use_container_width=True,
                             config={"displayModeBar": False}, key="vs_dA")
         with cv:
             st.markdown("<div class='dlp-vs-badge'><span>VS</span></div>", unsafe_allow_html=True)
         with cb:
             st.markdown(_side_head("B", medB, _compo(iB)), unsafe_allow_html=True)
-            st.plotly_chart(charts.allocation_donut(itemsB, lead_color=S.BLUE), use_container_width=True,
+            st.plotly_chart(charts.allocation_donut(itemsB, lead_color=PCOLOR["B"]), use_container_width=True,
                             config={"displayModeBar": False}, key="vs_dB")
-
-    # Veredicto honesto
-    verdict, lead = _compare_verdict(rA, iA, rB)
-    with components.card("cmp-verdict"):
+    with pcr, components.card("cmp-verdict"):
         components.card_head("◆", "Veredicto", "¿cuál proyecta mejor?")
+        verdict, lead = _compare_verdict(rA, iA, rB)
         components.verdict_card(lead, verdict)
 
-    # Métrica a métrica (barras enfrentadas)
+    # Métrica a métrica (barras enfrentadas) en DOS columnas: mitad del scroll
     with components.card("cmp-bars"):
         components.card_head("◆", "Métrica a métrica", "◆ = mejor")
-        st.markdown(_metric_bars(rA, rB, iA), unsafe_allow_html=True)
+        _bars = _metric_bars(rA, rB, iA)
+        st.markdown(f"<div class='dlp-vsm-grid'>{_bars}</div>", unsafe_allow_html=True)
 
     # Proyección comparada (overlay)
     with components.card("cmp-fan"):
@@ -1218,7 +1240,6 @@ def render_compare(rA, iA, exA, rB, iB, exB, benchmarks, elapsed=None) -> None:
         with dtB:
             render_single(rB, iB, exB, benchmarks, "dB", with_hero=False, with_actions=False)
 
-    st.divider()
     _render_pdf_button(rA, iA, benchmarks)
     if elapsed is not None:
         dist = "t-Student" if iA["distribution"] == "t-student" else "Normal"
@@ -1342,7 +1363,9 @@ def render_multi(runs: list[dict], benchmarks=None, elapsed=None) -> None:
     best = max(rows, key=lambda x: x["p50"])
     safest = min(rows, key=lambda x: x["dd"])
 
-    with components.card("cand-verdict"):
+    with st.container(key="pair-candtop"):
+        _ctl, _ctr = st.columns([1, 1.55], gap="medium")
+    with _ctl, components.card("cand-verdict"):
         components.card_head("◆", "El mejor portafolio", "según la proyección")
         v = (f"El portafolio {_b(best['name'], S.ORANGE)} proyecta la mayor mediana a "
              f"{_b(str(years) + ' años')}: {_b(components.fmt_money(best['p50']), S.ORANGE)}. ")
@@ -1359,9 +1382,10 @@ def render_multi(runs: list[dict], benchmarks=None, elapsed=None) -> None:
                   f"{_b(bestprob['name'], S.GOLD)} ({(bestprob['prob'] or 0) * 100:.0f}%).")
         components.verdict_card(S.GOLD, v)
 
-    with components.card("cand-board"):
+    with _ctr, components.card("cand-board"):
         components.card_head("◆", "Ranking de portafolios", "◆ = mejor en cada métrica")
-        st.markdown(_candidates_table(rows, target, best["name"]), unsafe_allow_html=True)
+        _tbl = _candidates_table(rows, target, best["name"])
+        st.markdown("<div class='dlp-table-scroll'>" + _tbl + "</div>", unsafe_allow_html=True)
         st.caption("Ordenados por mediana proyectada. 'Caída típica' y 'Eficiencia (Sharpe)' miden "
                    "el riesgo: menos caída y más Sharpe es mejor.")
 
@@ -1373,24 +1397,24 @@ def render_multi(runs: list[dict], benchmarks=None, elapsed=None) -> None:
 
     with components.card("cand-compo"):
         components.card_head("◆", "Composición de cada portafolio", "qué activos tiene y con qué peso")
-        for idx, r in enumerate(sorted(rows, key=lambda x: -x["p50"])):
+        # Un candidato por COLUMNA (dona arriba, lista debajo): 3 de ancho, sin dividers.
+        _orden = sorted(rows, key=lambda x: -x["p50"])
+        with st.container(key="pair-candcompo"):
+            _ccols = st.columns(min(len(_orden), 3), gap="medium")
+        for idx, r in enumerate(_orden):
             items = r["items"]
             is_best = r["name"] == best["name"]
             nmcol = S.ORANGE if is_best else S.TEXT_HI
-            tag = " · el de mayor mediana" if is_best else ""
-            st.markdown(
-                f"<div style='margin:6px 0 4px;'><b style='color:{nmcol};font-family:{S.MONO};"
-                f"font-size:15px;letter-spacing:.04em;'>{r['name']}</b>"
-                f"<span style='color:{S.TEXT_LO};font-size:12px;'> · {len(items)} activos{tag}</span></div>",
-                unsafe_allow_html=True)
-            dc, lc = st.columns([1, 1.3], gap="large")
-            with dc:
+            tag = " · mayor mediana" if is_best else ""
+            with _ccols[idx % len(_ccols)]:
+                st.markdown(
+                    f"<div style='margin:2px 0 2px;'><b style='color:{nmcol};font-family:{S.MONO};"
+                    f"font-size:13.5px;letter-spacing:.03em;'>{r['name'][:24]}</b>"
+                    f"<span style='color:{S.TEXT_LO};font-size:11px;'> · {len(items)} activos{tag}</span></div>",
+                    unsafe_allow_html=True)
                 st.plotly_chart(charts.allocation_donut(items), use_container_width=True,
                                 config={"displayModeBar": False}, key=f"cand_compo_donut_{idx}")
-            with lc:
                 st.markdown(_candidate_composition_html(items), unsafe_allow_html=True)
-            if idx < len(rows) - 1:
-                st.divider()
 
     # ANÁLISIS COMPLETO de cada portafolio (mismas pestañas que el modo de 1 portafolio).
     st.markdown("<div class='dlp-side-title' style='margin-top:18px'>Análisis completo de cada "
@@ -1401,7 +1425,6 @@ def render_multi(runs: list[dict], benchmarks=None, elapsed=None) -> None:
             render_single(r["result"], r["inputs"], r.get("extras") or {}, benchmarks,
                           f"m{i}", with_hero=False, with_actions=False)
 
-    st.divider()
     _render_pdf_button(results[0]["result"], results[0]["inputs"], benchmarks)
     if elapsed is not None:
         dist = "t-Student" if results[0]["inputs"]["distribution"] == "t-student" else "Normal"

@@ -51,29 +51,6 @@ def progress_overlay(pct: int, message: str) -> str:
     """
 
 
-def progress_ring(pct: int, message: str) -> str:
-    """HTML de un anillo de progreso circular (conic-gradient) 0-100% con número y mensaje."""
-    deg = pct * 3.6
-    return f"""
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
-                padding:46px 0 38px;">
-      <div style="width:158px;height:158px;border-radius:50%;
-        background:conic-gradient({S.ORANGE} {deg}deg, {S.BG_CARD2} {deg}deg);
-        display:flex;align-items:center;justify-content:center;
-        box-shadow:0 4px 14px rgba(0,0,0,.35); transition: background .15s linear;">
-        <div style="width:122px;height:122px;border-radius:50%;background:{S.BG_DEEP};
-          display:flex;flex-direction:column;align-items:center;justify-content:center;">
-          <span style="font-family:{S.MONO};font-size:34px;font-weight:800;color:{S.ORANGE};">{pct}%</span>
-          <span style="font-family:{S.MONO};font-size:10px;color:{S.TEXT_LO};
-                letter-spacing:.18em;margin-top:2px;">SIMULANDO</span>
-        </div>
-      </div>
-      <div style="font-family:{S.MONO};text-transform:uppercase;letter-spacing:.12em;
-           color:{S.TEXT_MD};font-size:13px;margin-top:20px;">{message}</div>
-    </div>
-    """
-
-
 def spinner_ring(message: str) -> str:
     """Spinner circular indeterminado (mismo estilo que el loader, pero girando). Bien evidente."""
     return f"""
@@ -105,7 +82,8 @@ def card_head(icon: str, title: str, hint: str = "") -> None:
 
 
 def page_hero() -> None:
-    """Hero de la página: título dorado con glow + diamante + subtítulo (estilo app madre)."""
+    """Hero centrado con ambiente: glow respirando detrás, diamante y título metálico.
+    (Restaurado a pedido del usuario — la banda de una línea quedó descartada.)"""
     st.markdown(
         """
         <div class="dlp-page-hero">
@@ -118,44 +96,6 @@ def page_hero() -> None:
         """,
         unsafe_allow_html=True,
     )
-
-
-def stepper(portafolio_ok: bool) -> None:
-    """Indicador de pasos. El paso 3 se 'activa' cuando el portafolio está listo."""
-    def num(done: bool, n: int) -> str:
-        return "✓" if done else str(n)
-    s1d, s2d, s3a = True, portafolio_ok, portafolio_ok
-    st.markdown(
-        f"""
-        <div class="dlp-steps">
-          <div class="dlp-step done"><span class="num">{num(True,1)}</span> Tu plan</div>
-          <div class="dlp-step {'done' if s2d else 'active'}"><span class="num">{num(s2d,2)}</span> Tu portafolio</div>
-          <div class="dlp-step {'active' if s3a else ''}"><span class="num">3</span> Proyectar</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def pill(text: str, kind: str = "orange") -> str:
-    """Devuelve el HTML de una pill de estado (orange/blue/green/ghost)."""
-    return f'<span class="dlp-pill dlp-pill-{kind}">{text}</span>'
-
-
-def search_menu(pid: str = ""):
-    """Panel-menú elevado para los resultados del buscador (se separa del fondo)."""
-    return st.container(key=f"searchmenu_{pid}")
-
-
-def ticker_result_card(r: dict) -> str:
-    """Tarjeta de un ticker: código (con color) a la izquierda, nombre + bolsa a la derecha."""
-    color = S.BLUE if r.get("is_etf") else S.ORANGE
-    kind = "ETF" if r.get("is_etf") else "Acción"
-    name = (r.get("name") or "")[:42]
-    return (f"<div class='dlp-tk'>"
-            f"<div class='code' style='color:{color}; border-color:{color}66;'>{r['symbol']}</div>"
-            f"<div class='meta'><div class='nm'>{name}</div>"
-            f"<div class='ex'>{r['exchange']} · {kind}</div></div></div>")
 
 
 def disclaimer_banner() -> None:
@@ -240,6 +180,40 @@ def kpi_tile(label: str, value: str, color: str, sublabel: str = "",
           <div class="kpi-value" style="color:{vcolor};font-size:{vfs};">{value}</div>
           <div class="kpi-sub">{sublabel}</div>
           {meter_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def meter_stat(label: str, value: str, color: str, pos: float,
+               sub: str = "", ends: tuple[str, str] = ("riesgo", "sólido")) -> None:
+    """ANILLO de progreso rico (conic-gradient + glow, el lenguaje del loader) con la
+    cifra en el centro, más un termómetro fino de refuerzo debajo.
+
+    `pos` 0-1: llena el anillo y posiciona el punto (0=rojo/izq, 1=verde/der).
+    """
+    frac = max(0.0, min(1.0, float(pos)))
+    deg = frac * 360.0
+    pct = frac * 100.0
+    st.markdown(
+        f"""
+        <div class="dlp-ring-stat">
+          <div class="rs-label">{label}</div>
+          <div class="rs-wrap">
+            <div class="rs-ring" style="background:
+                 conic-gradient({color} {deg:.0f}deg, rgba(255,255,255,.06) {deg:.0f}deg);
+                 box-shadow: 0 0 34px {color}44, inset 0 1px 0 rgba(255,255,255,.05);">
+              <div class="rs-hole">
+                <span class="rs-value" style="color:{color};
+                      text-shadow:0 0 18px {color}66;">{value}</span>
+              </div>
+            </div>
+          </div>
+          <div class="rs-sub">{sub}</div>
+          <div class="ms-meter"><span class="ms-dot"
+               style="left:{pct:.0f}%;background:{color};box-shadow:0 0 10px {color};"></span></div>
+          <div class="ms-ends"><span>{ends[0]}</span><span>{ends[1]}</span></div>
         </div>
         """,
         unsafe_allow_html=True,

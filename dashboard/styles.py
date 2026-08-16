@@ -42,6 +42,19 @@ LEGAL_LBL = "#7E8794"    # "AVISO:" un punto más claro para que se lea primero
 LEGAL_TXT = "#6B7481"    # gris oscuro: discreto pero legible sobre el azul
 PURPLE = "#9D8CE0"       # --purple (dato categórico)
 
+# ── Serie categórica de DATOS (no de UI) ─────────────────────────────────────
+# Validada con el validador del skill dataviz contra la superficie #101216
+# (banda OKLCH 0.48–0.67, separación CVD y visión normal, contraste ≥3:1).
+# ORDEN DOCUMENTADO del skill: NO reordenar sin re-validar — el orden es el
+# mecanismo de seguridad para daltonismo, no cosmética.
+SERIES = ["#3987E5", "#D95926", "#199E70", "#C98500", "#D55181", "#008300", "#9085E9", "#E66767"]
+SERIES_A = "#C98500"     # oro de marca re-escalonado a la banda oscura → identidad portafolio A
+SERIES_B = "#3987E5"     # azul → portafolio B
+SERIES_C = "#D55181"     # magenta → portafolio C (púrpura vs azul falla all-pairs: ΔE 9,8)
+SERIES_OTROS = "#5E6570" # cola agrupada de la dona
+BENCH_NEUTRAL = "#8D949E"  # benchmark S&P: es referencia, no competidor — gris con guiones
+
+
 # ── Texto: rampa de 4 pasos (se acabó la sopa de grises) ────────────────────
 TEXT_HI = "#F2F3F5"      # --text-hi
 TEXT_MD = "#C9CDD3"      # --text
@@ -152,6 +165,8 @@ def inject_css() -> None:
             --dur-1: 120ms; --dur-2: 180ms; --dur-3: 240ms;
         }}
 
+        [data-testid="stVerticalBlock"] {{ gap: .7rem; }}
+
         /* ── Animaciones: sin neón, con física ─────────────────── */
         @keyframes dlpFadeUp {{ from {{opacity:0; transform:translateY(10px);}} to {{opacity:1; transform:translateY(0);}} }}
         @keyframes dlpFadeIn {{ from {{opacity:0;}} to {{opacity:1;}} }}
@@ -207,7 +222,8 @@ def inject_css() -> None:
            y scrolleaba con la página. "backwards" da una entrada idéntica frame a frame,
            pero al terminar suelta el transform y el overlay queda fijo de verdad
            (mismo comportamiento que DLP Analyzer, cuyo contenedor no se anima). */
-        .block-container {{ padding-top: .8rem; padding-bottom: 2rem; max-width: 780px;
+        .block-container {{ padding-top: .45rem; padding-bottom: 1rem; max-width: 1240px;
+            padding-left: 1.25rem; padding-right: 1.25rem;
             animation: dlpFadeUp var(--dur-3) var(--dlp-ease-out) backwards; }}
         section[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],
         [data-testid="collapsedControl"] {{ display: none !important; }}
@@ -260,91 +276,33 @@ def inject_css() -> None:
             color: {TEXT_MD}; font-size: 13px; animation: dlpBreathe 2.4s ease-in-out infinite; }}
 
         /* ── Hero de página (mismo tratamiento que .alpha-hero) ─ */
-        .dlp-page-hero {{ position: relative; text-align: center; padding: 8px 0 4px;
-            animation: dlpFadeUp .8s ease-out both; }}
+        .dlp-page-hero {{ position: relative; text-align: center; padding: 10px 0 2px;
+            margin-bottom: 4px; animation: dlpFadeUp .8s ease-out both; }}
         .dlp-page-hero .glow {{
             position:absolute; top:-30px; left:50%; transform:translateX(-50%);
-            width:640px; height:240px; pointer-events:none; filter: blur(18px);
-            background: radial-gradient(ellipse at center, rgba(var(--accent-rgb),.18), rgba(var(--accent-rgb),0) 70%);
-            animation: dlpBreathe 6s ease-in-out infinite;
+            width:min(640px, 72vw); height:230px; pointer-events:none; filter: blur(18px);
+            background: radial-gradient(ellipse at center, rgba(var(--accent-rgb),.20), rgba(var(--accent-rgb),0) 70%);
+            animation: dlpBreathe 4.5s ease-in-out infinite;
         }}
         .dlp-page-hero .diamond {{
-            color:{GOLD}; font-size:20px; line-height:1; display:inline-block;
-            filter: drop-shadow(0 0 12px rgba(var(--accent-hi-rgb),.55)); margin-bottom: 4px;
+            color:{GOLD}; font-size:21px; line-height:1; display:inline-block;
+            filter: drop-shadow(0 0 14px rgba(var(--accent-hi-rgb),.6)); margin-bottom: 4px;
         }}
-        /* Marca: degradado 135° + pulse-glow exactos de .alpha-hero-brand */
+        /* Título METÁLICO: degradado oro sobre el propio texto (patrón alpha-hero-brand) */
         .dlp-page-hero .title {{
-            font-family:{FONT_FAMILY}; font-weight:600; font-size:36px; line-height:1.06;
-            text-transform:none; letter-spacing:-0.02em; margin: 4px 0 8px;
-            color: var(--text-hi);
+            font-family:{FONT_FAMILY}; font-weight:750; font-size:37px; line-height:1.08;
+            letter-spacing:-0.02em; margin: 4px 0 8px;
+            background: linear-gradient(160deg, #F7E3B4 0%, {GOLD} 30%, {ORANGE} 62%, {ORANGE_DK} 100%);
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 2px 14px rgba(var(--accent-rgb),.28));
         }}
-        /* Tagline: Inter en mayúsculas, igual que .alpha-hero-tagline */
         .dlp-page-hero .sub {{
-            font-family:{FONT_FAMILY}; color:var(--text-2); text-transform:none;
-            letter-spacing:0; font-size:14px; font-weight:400;
+            font-family:{FONT_FAMILY}; color:var(--text-2); font-size:14px; font-weight:400;
         }}
-        .dlp-rule {{ height:1px; max-width:100px; margin:20px auto 6px;
-            background: linear-gradient(90deg, transparent, {ORANGE}, transparent); }}
-
-        /* ── Stepper ──────────────────────────────────────────── */
-        .dlp-steps {{ display:flex; gap:12px; justify-content:center; margin:14px 0 20px; flex-wrap:wrap; }}
-        .dlp-step {{
-            display:flex; align-items:center; gap:10px; padding:9px 18px; border-radius:12px;
-            background:{BG_CARD}; border:1px solid {BORDER}; font-family:{MONO};
-            font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:{TEXT_LO};
-            transition: border-color .25s var(--dlp-ease-out), color .25s var(--dlp-ease-out), box-shadow .25s var(--dlp-ease-out);
-        }}
-        .dlp-step .num {{ width:22px; height:22px; border-radius:50%; display:flex;
-            align-items:center; justify-content:center; font-size:11px; font-weight:700;
-            background:{BG_CARD2}; color:{TEXT_LO}; border:1px solid {BORDER}; }}
-        .dlp-step.done {{ border-color: rgba(var(--pos-rgb),.4); color:{TEXT_MD}; }}
-        .dlp-step.done .num {{ background:rgba(var(--pos-rgb),.15); color:{GREEN}; border-color:rgba(var(--pos-rgb),.5); }}
-        .dlp-step.active {{ border-color:{ORANGE}; color:{ORANGE};
-            box-shadow:0 0 22px rgba(var(--accent-rgb),.16); }}
-        .dlp-step.active .num {{ background:rgba(var(--accent-rgb),.16); color:{ORANGE}; border-color:{ORANGE}; }}
-
-        /* ── Pills de estado ──────────────────────────────────── */
-        .dlp-pill {{ display:inline-block; padding:3px 10px; border-radius:6px; font-family:{MONO};
-            font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; }}
-        .dlp-pill-orange {{ background:linear-gradient(135deg,{ORANGE},{ORANGE_DK}); color:#0A0B0D; }}
-        .dlp-pill-blue   {{ background:linear-gradient(135deg,{BLUE},{BLUE_DK});   color:#06121F; }}
-        .dlp-pill-green  {{ background:linear-gradient(135deg,{GREEN},{GREEN_DK}); color:#04140A; }}
-        .dlp-pill-ghost  {{ background:{BG_CARD2}; color:{TEXT_LO}; border:1px solid {BORDER}; }}
-
-        /* ── Sidebar ──────────────────────────────────────────── */
-        section[data-testid="stSidebar"] > div {{
-            background: linear-gradient(180deg, #0A0D11 0%, #0D1117 100%);
-            border-right: 1px solid {BORDER};
-        }}
-        .dlp-side-brand {{ display:flex; align-items:center; gap:10px; padding:6px 2px 2px; }}
-        .dlp-side-brand .d {{ color:{GOLD}; font-size:18px; filter: drop-shadow(0 0 10px rgba(var(--accent-hi-rgb),.5)); }}
-        .dlp-side-brand .t {{ font-family:{MONO}; font-weight:800; color:{TEXT_HI}; letter-spacing:.06em; }}
-        .dlp-side-brand .s {{ font-family:{MONO}; font-size:10px; color:{TEXT_LO}; letter-spacing:.22em; }}
-        .dlp-side-title {{ color:{TEXT_LO}; font-family:{MONO}; font-size:11px; font-weight:700;
-            text-transform:uppercase; letter-spacing:.16em; margin:18px 0 8px; }}
-        .dlp-side-item {{ background:{BG_CARD}; border:1px solid {BORDER}; border-left:3px solid {ORANGE};
-            border-radius:8px; padding:9px 12px; margin-bottom:8px;
-            transition: transform .18s var(--dlp-ease-out), border-color .18s var(--dlp-ease-out); }}
-        .dlp-side-item:hover {{ border-color:rgba(var(--accent-rgb),.4); transform: translateX(2px); }}
-        .dlp-side-item .lbl {{ color:{TEXT_MD}; font-size:13px; font-weight:600; }}
-        .dlp-side-item .meta {{ color:{TEXT_LO}; font-size:11px; margin-top:2px; }}
-
-        /* Nota fina: aviso legal discreto, alineado a la derecha */
-        .dlp-fineprint {{ text-align:right; color:{TEXT_DIM}; font-size:11px; line-height:1.45;
-            font-style:italic; margin:6px 0 0; }}
-
-        /* Pie del stress test: separador + % bajo cada barra */
-        .dlp-stress-sep {{ height:1px; background:{HAIRLINE_2}; margin:2px 0 10px; }}
-        .dlp-stress-foot {{ text-align:center; }}
-        .dlp-stress-foot .pct {{ font-family:{MONO}; font-size:19px; font-weight:800; color:{RED};
-            line-height:1.1; font-variant-numeric:tabular-nums; }}
-        .dlp-stress-foot .nm {{ font-family:{FONT_FAMILY}; font-size:11px; color:{TEXT_LO};
-            margin-top:3px; line-height:1.25; }}
-
-        /* Caja de análisis junto al tacómetro: nunca más alta que el gauge */
-        .dlp-analysis-box {{ margin-bottom:0 !important; padding:14px 16px !important;
-            max-height:196px; overflow:hidden; }}
-        .dlp-analysis-box .body {{ color:{TEXT_MD}; font-size:13px; line-height:1.5; margin-top:6px; }}
+        .dlp-rule {{ height:1px; max-width:120px; margin:14px auto 4px;
+            background: linear-gradient(90deg, transparent, {ORANGE}, transparent);
+            box-shadow: 0 0 10px rgba(var(--accent-rgb),.5); }}
 
         /* ── Hero de resultados (v2): monto grande centrado, meta distribuida ── */
         .dlp-hero-v2 {{ text-align:center; background:
@@ -376,20 +334,6 @@ def inject_css() -> None:
         .dlp-card2 {{ background:{BG_CARD2}; }}
         /* Acento izquierdo dorado — igual que .analysis-card / .agent-header */
         .dlp-card-left {{ border-left:3px solid {ORANGE}; }}
-
-        /* ── Hero card (resultados) — patrón .qv-header ────────── */
-        .dlp-hero {{ background: {CARD_BG};
-            border:1px solid {GOLD_HOVER}; border-left:3px solid {ORANGE};
-            border-radius:12px; padding:26px 30px; margin-bottom:18px;
-            display:flex; align-items:center; justify-content:space-between;
-            box-shadow:0 4px 24px rgba(0,0,0,.4); animation: dlpFadeUp .4s ease-out both; }}
-        .dlp-hero .glyph {{ font-size:74px; font-weight:800; line-height:1; font-family:{MONO};
-            background:linear-gradient(135deg,{ORANGE},{ORANGE_DK}); -webkit-background-clip:text;
-            -webkit-text-fill-color:transparent; background-clip:text;
-            filter: drop-shadow(0 0 18px rgba(var(--accent-rgb),.35)); }}
-        .dlp-hero .meta-label {{ color:{TEXT_LO}; font-family:{MONO}; font-size:11px;
-            text-transform:uppercase; letter-spacing:.10em; }}
-        .dlp-hero .meta-value {{ color:{TEXT_HI}; font-size:20px; font-weight:700; }}
 
         /* ── KPI tile (stat tile): superficie metálica + borde dorado + termómetro + "?" ── */
         .dlp-kpi {{ position:relative; display:flex; flex-direction:column;
@@ -439,11 +383,187 @@ def inject_css() -> None:
         .dlp-kpi-help:hover::after {{ opacity:1; transform:translateY(0); }}
 
         /* ── Disclaimer ───────────────────────────────────────── */
-        .dlp-disclaimer {{ background:rgba(var(--neg-rgb),.08); border:1px solid rgba(var(--neg-rgb),.45);
-            border-left:5px solid {RED}; border-radius:12px; padding:16px 20px; margin:14px 0 18px;
+        /* ═══ EL ARMADOR ES EL PROTAGONISTA ══════════════════════════════ */
+        div[class*="st-key-card-portafolio"] {{
+            background: linear-gradient(180deg, rgba(var(--accent-rgb),.075) 0%,
+                                                rgba(var(--accent-rgb),.02) 46%, #0E1014 100%) !important;
+            border: 1px solid rgba(var(--accent-rgb),.30) !important;
+            box-shadow: {INSET_HI}, 0 8px 30px rgba(0,0,0,.45),
+                        0 0 40px rgba(var(--accent-rgb),.07) !important;
+        }}
+        /* La dona vive en un panel-instrumento hundido con halo dorado */
+        div[class*="st-key-donutcard_"] {{
+            background: radial-gradient(ellipse at 50% 38%, #0B0D11 0%, #07080B 100%) !important;
+            border: 1px solid rgba(var(--accent-rgb),.22) !important; border-radius: 14px !important;
+            padding: 10px 12px !important;
+            box-shadow: inset 0 2px 14px rgba(0,0,0,.55), 0 0 26px rgba(var(--accent-rgb),.08) !important;
+        }}
+        /* Filas de activos: sub-panel hundido, hairline entre filas */
+        div[class*="st-key-holdings_"] {{
+            background: {BG_SUNK} !important; border: 1px solid {HAIRLINE_2} !important;
+            border-radius: 12px !important; padding: 10px 14px !important; margin-top: 10px !important;
+            box-shadow: {INSET_HI} !important;
+        }}
+        /* Montos en mono dorado: se leen como dinero */
+        div[class*="st-key-pw_"] input {{
+            font-family: {MONO} !important; font-weight: 700 !important;
+            color: {GOLD} !important; letter-spacing: .02em;
+        }}
+        /* Buscador: foco con anillo dorado */
+        div[class*="st-key-q_"] input:focus {{
+            border-color: rgba(var(--accent-rgb),.65) !important;
+            box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.18), 0 0 18px rgba(var(--accent-rgb),.15) !important;
+        }}
+
+        /* Ring-stat: anillo conic con glow (lenguaje del loader) + cifra centrada */
+        .dlp-ring-stat {{ padding: 4px 4px 2px; }}
+        .dlp-ring-stat .rs-label {{ color:{TEXT_LO}; font-family:{MONO}; font-size:10.5px;
+            font-weight:700; text-transform:uppercase; letter-spacing:.12em; }}
+        .dlp-ring-stat .rs-wrap {{ display:flex; justify-content:center; margin:12px 0 8px; }}
+        .dlp-ring-stat .rs-ring {{ width:132px; height:132px; border-radius:50%;
+            display:flex; align-items:center; justify-content:center;
+            transition: background .3s linear; }}
+        .dlp-ring-stat .rs-hole {{ width:102px; height:102px; border-radius:50%;
+            background: radial-gradient(circle at 50% 42%, #101216 0%, #0A0B0D 100%);
+            display:flex; align-items:center; justify-content:center;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,.6); }}
+        .dlp-ring-stat .rs-value {{ font-family:{MONO}; font-weight:800; font-size:27px;
+            letter-spacing:-0.02em; }}
+        .dlp-ring-stat .rs-sub {{ color:{TEXT_LO}; font-size:11.5px; margin:2px 0 8px; text-align:center; }}
+        .dlp-ring-stat .ms-meter {{ position:relative; height:12px; display:flex; align-items:center; }}
+        .dlp-ring-stat .ms-meter::before {{ content:""; width:100%; height:6px; border-radius:99px;
+            background: linear-gradient(90deg, {RED} 0%, #E5C05C 50%, {GREEN} 100%); opacity:.5; }}
+        .dlp-ring-stat .ms-dot {{ position:absolute; top:50%; width:12px; height:12px;
+            border-radius:50%; transform:translate(-50%,-50%); border:2px solid {BG_CARD}; }}
+        .dlp-ring-stat .ms-ends {{ display:flex; justify-content:space-between;
+            color:{TEXT_DIM}; font-family:{MONO}; font-size:9.5px; margin-top:3px;
+            text-transform:uppercase; letter-spacing:.08em; }}
+
+        /* ═══ DONA SOFISTICADA ═══════════════════════════════════════════
+           Porciones que se EXPANDEN al hover (transform-box las escala desde su
+           propio centro), con brillo; el contenedor lleva sombra clara + halo
+           dorado + reflejo de vidrio; y el chart entra con scaleIn en CADA
+           cambio de datos (añadir/quitar activo o cambiar montos re-monta el
+           nodo → la animación se repite sola). */
+        div[class*="st-key-donutcard_"] .js-plotly-plot {{
+            filter: drop-shadow(0 10px 26px rgba(0,0,0,.55))
+                    drop-shadow(0 0 20px rgba(var(--accent-rgb),.12));
+            animation: dlpDonutIn .5s var(--dlp-ease-out) backwards;
+        }}
+        @keyframes dlpDonutIn {{
+            from {{ opacity:0; transform: scale(.93) rotate(-4deg); }}
+            to   {{ opacity:1; transform: scale(1) rotate(0deg); }}
+        }}
+        div[class*="st-key-donutcard_"] {{ position:relative; }}
+        /* Reflejo de vidrio del panel (arriba, suave) */
+        div[class*="st-key-donutcard_"]::after {{
+            content:""; position:absolute; top:0; left:6%; width:88%; height:42%;
+            border-radius: 14px 14px 50% 50%;
+            background: radial-gradient(ellipse at 50% 0%,
+                rgba(255,255,255,.05) 0%, rgba(255,255,255,0) 72%);
+            pointer-events:none;
+        }}
+        /* Popup de las donas: la caja se mide a 13.5 y el texto se pinta a 11.5 →
+           nunca vuelve a cortarse por alto ni por ancho, en ninguna porción. */
+        div[class*="st-key-donut"] .hoverlayer .hovertext text,
+        div[class*="st-key-vs_d"] .hoverlayer .hovertext text,
+        div[class*="st-key-cand_compo_donut"] .hoverlayer .hovertext text {{
+            font-size: 11.5px !important;
+        }}
+
+        /* ── ANILLOS DE LA DONA: borde exterior dorado con glow doble, borde
+           interior en el filo del agujero, y un BARRIDO DE REFLEJO sobre la
+           banda circular (conic blanco enmascarado al anillo). El pie mide
+           Ø144px (height 200 − márgenes 28), agujero Ø≈89. ─────────────── */
+        div[class*="st-key-donutcard_"] .js-plotly-plot {{ position:relative; }}
+        div[class*="st-key-donutcard_"] .js-plotly-plot::before {{
+            content:""; position:absolute; left:50%; top:50%;
+            width:152px; height:152px; transform:translate(-50%,-50%);
+            border-radius:50%;
+            border:1px solid rgba(var(--accent-rgb),.50);
+            box-shadow: 0 0 22px rgba(var(--accent-rgb),.30),
+                        0 0 3px rgba(var(--accent-hi-rgb),.55),
+                        inset 0 0 14px rgba(var(--accent-rgb),.12);
+            pointer-events:none; z-index:4;
+        }}
+        div[class*="st-key-donutcard_"] .js-plotly-plot::after {{
+            content:""; position:absolute; left:50%; top:50%;
+            width:150px; height:150px; transform:translate(-50%,-50%);
+            border-radius:50%;
+            /* barrido de reflejo + filo interior del agujero (dos capas) */
+            background:
+                conic-gradient(from 215deg,
+                    rgba(255,255,255,.14) 0deg, rgba(255,255,255,.03) 52deg,
+                    rgba(255,255,255,0) 95deg, rgba(255,255,255,0) 300deg,
+                    rgba(255,255,255,.08) 338deg, rgba(255,255,255,.14) 360deg),
+                radial-gradient(circle, rgba(0,0,0,0) 0 42px,
+                    rgba(var(--accent-hi-rgb),.35) 43px 44px, rgba(0,0,0,0) 45px);
+            -webkit-mask: radial-gradient(circle,
+                transparent 0 42px, #000 43px 74px, transparent 75px);
+                    mask: radial-gradient(circle,
+                transparent 0 42px, #000 43px 74px, transparent 75px);
+            pointer-events:none; z-index:5;
+        }}
+        .stPlotlyChart g.slice path.surface {{
+            transform-box: fill-box; transform-origin: center;
+            transition: transform .16s var(--dlp-ease-out), filter .16s var(--dlp-ease-out);
+        }}
+        @media (hover: hover) and (pointer: fine) {{
+            .stPlotlyChart g.slice:hover path.surface {{
+                transform: scale(1.055);
+                filter: brightness(1.14) drop-shadow(0 0 12px rgba(255,255,255,.14));
+            }}
+        }}
+
+        /* ═══ BUSCADOR: borde ROTANDO con destello (conic + máscara de anillo) ═══ */
+        @property --dlpang {{ syntax: "<angle>"; initial-value: 0deg; inherits: false; }}
+        div[class*="st-key-q_"] {{ position:relative; border-radius:13px; }}
+        div[class*="st-key-q_"]::before {{
+            content:""; position:absolute; inset:-2px; border-radius:15px; padding:2px;
+            background: conic-gradient(from var(--dlpang),
+                rgba(var(--accent-rgb),0) 0deg,  rgba(var(--accent-rgb),0) 258deg,
+                rgba(var(--accent-rgb),.55) 300deg, rgba(255,255,255,.9) 318deg,
+                rgba(var(--accent-rgb),.55) 336deg, rgba(var(--accent-rgb),0) 360deg);
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor; mask-composite: exclude;
+            animation: dlpRotBorder 4.6s linear infinite;
+            pointer-events:none; z-index:1;
+        }}
+        @keyframes dlpRotBorder {{ to {{ --dlpang: 360deg; }} }}
+
+        /* Métrica-a-métrica en 2 columnas (compare) + scroll propio de la tabla-ranking */
+        .dlp-vsm-grid {{ display:grid; grid-template-columns:1fr 1fr; column-gap:26px; }}
+        @media (max-width: 899px) {{ .dlp-vsm-grid {{ grid-template-columns:1fr; }} }}
+        .dlp-table-scroll {{ overflow-x:auto; }}
+        .dlp-table-scroll::-webkit-scrollbar {{ height:6px; }}
+
+        /* Meter-stat: cifra héroe + termómetro fino (sustituye a los gauges de 240px) */
+        .dlp-meter-stat {{ padding: 6px 4px 2px; }}
+        .dlp-meter-stat .ms-label {{ color:{TEXT_LO}; font-family:{MONO}; font-size:10.5px;
+            font-weight:700; text-transform:uppercase; letter-spacing:.12em; }}
+        .dlp-meter-stat .ms-value {{ font-family:{MONO}; font-weight:800; font-size:44px;
+            line-height:1.05; letter-spacing:-0.02em; margin:6px 0 2px; }}
+        .dlp-meter-stat .ms-sub {{ color:{TEXT_LO}; font-size:12px; margin-bottom:10px; }}
+        .dlp-meter-stat .ms-meter {{ position:relative; height:14px; display:flex; align-items:center; }}
+        .dlp-meter-stat .ms-meter::before {{ content:""; width:100%; height:8px; border-radius:99px;
+            background: linear-gradient(90deg, {RED} 0%, #E5C05C 50%, {GREEN} 100%);
+            opacity:.5; }}
+        .dlp-meter-stat .ms-dot {{ position:absolute; top:50%; width:13px; height:13px;
+            border-radius:50%; transform:translate(-50%,-50%);
+            border:2px solid {BG_CARD};
+            transition:left var(--dur-3) var(--dlp-ease-out); }}
+        .dlp-meter-stat .ms-ends {{ display:flex; justify-content:space-between;
+            color:{TEXT_DIM}; font-family:{MONO}; font-size:9.5px; margin-top:4px;
+            text-transform:uppercase; letter-spacing:.08em; }}
+
+        /* Chip fino de cumplimiento: mismo texto exacto, sin aspecto de alerta de error */
+        .dlp-disclaimer {{ display:flex; justify-content:center; margin:2px 0 10px;
             animation: dlpFadeUp .45s ease both; }}
-        .dlp-disclaimer .head {{ color:{RED}; font-family:{MONO}; font-size:12px; font-weight:800;
-            text-transform:uppercase; letter-spacing:.08em; margin-bottom:6px; }}
+        .dlp-disclaimer .head {{ display:inline-flex; align-items:center; gap:7px;
+            color:{RED}; background:rgba(var(--neg-rgb),.07);
+            border:1px solid rgba(var(--neg-rgb),.35); border-radius:999px;
+            padding:4px 14px; font-family:{MONO}; font-size:10.5px; font-weight:700;
+            text-transform:uppercase; letter-spacing:.08em; }}
         .dlp-disclaimer .body {{ color:{TEXT_MD}; font-size:14px; line-height:1.5; }}
         .dlp-sample-warn {{ background:rgba(var(--accent-hi-rgb),.08); border:1px solid rgba(var(--accent-hi-rgb),.45);
             border-left:5px solid {GOLD}; border-radius:10px; padding:12px 16px; margin:10px 0;
@@ -452,7 +572,7 @@ def inject_css() -> None:
         /* Aviso legal del pie: azul oscuro, letra gris pequeña. Deliberadamente
            discreto — cierra la página sin competir con el análisis. */
         .dlp-legal {{ background:{LEGAL_BG}; border:1px solid {LEGAL_EDGE}; border-radius:12px;
-            padding:14px 18px; margin:26px 0 8px; }}
+            padding:9px 14px; margin:10px 0 4px; }}
         .dlp-legal .lbl {{ color:{LEGAL_LBL}; font-family:{MONO}; font-size:11px; font-weight:700;
             text-transform:uppercase; letter-spacing:.10em; margin-right:6px; }}
         .dlp-legal .txt {{ color:{LEGAL_TXT}; font-size:11.5px; line-height:1.55; }}
@@ -461,15 +581,23 @@ def inject_css() -> None:
         /* CTA primario "Analizar": color SÓLIDO + borde nítido dorado + glow en el borde que
            llama la atención (estático premium, sin pulse perpetuo) + feedback al presionar. */
         button[data-testid^="stBaseButton-primary"] {{
-            background: var(--accent) !important;
-            color:#0A0B0D !important; font-family:{FONT_FAMILY} !important; font-weight:600 !important;
-            text-transform:none; letter-spacing:0; font-size:14.5px !important;
-            border:1px solid rgba(var(--accent-hi-rgb),.45) !important;
-            border-radius:var(--r-md) !important; padding:14px 22px !important;
-            box-shadow: var(--shadow-1), inset 0 1px 0 rgba(255,255,255,.16) !important;
+            background: linear-gradient(135deg, {GOLD} 0%, {ORANGE} 55%, {ORANGE_DK} 100%) !important;
+            color: #0A0B0D !important; font-weight: 800 !important;
+            border: 1px solid rgba(var(--accent-hi-rgb),.65) !important;
+            border-radius: 12px !important; padding: 13px 22px !important;
+            font-family: {MONO} !important; text-transform: uppercase; letter-spacing: .07em;
+            box-shadow: 0 6px 26px rgba(var(--accent-rgb),.30),
+                        inset 0 1px 0 rgba(255,255,255,.35),
+                        inset 0 -8px 18px rgba(0,0,0,.18) !important;
             transition: transform var(--dur-1) var(--dlp-ease-out),
-                        background var(--dur-2) var(--dlp-ease-out),
-                        box-shadow var(--dur-2) var(--dlp-ease-out);
+                        box-shadow var(--dur-2) var(--dlp-ease-out),
+                        filter var(--dur-2) var(--dlp-ease-out) !important;
+        }}
+        button[data-testid^="stBaseButton-primary"]:hover {{
+            filter: brightness(1.07); transform: translateY(-1px);
+            box-shadow: 0 10px 34px rgba(var(--accent-rgb),.42),
+                        inset 0 1px 0 rgba(255,255,255,.4),
+                        inset 0 -8px 18px rgba(0,0,0,.15) !important;
         }}
         button[data-testid^="stBaseButton-primary"]:hover {{
             background: var(--accent-hi) !important; transform: translateY(-1px);
@@ -509,19 +637,23 @@ def inject_css() -> None:
 
         /* ── Cards vía keyed containers: st.container(key="card-…") ── */
         div[class*="st-key-card-"] {{
-            background: {METAL_BG};
+            background: linear-gradient(180deg, #13161C 0%, {BG_CARD} 58%, #0E1014 100%);
             border: 1px solid {METAL_BORDER}; border-radius: 18px;
-            padding: 10px 26px 22px; margin-bottom: 18px;
+            padding: 8px 16px 14px; margin-bottom: 14px;
             box-shadow: {METAL_SHADOW};
             transition: border-color .2s var(--dlp-ease-out);
         }}
         div[class*="st-key-card-"]:hover {{ border-color: rgba(var(--accent-rgb),.26); }}
-        .dlp-card-head {{ display:flex; align-items:baseline; gap:11px; margin: 8px 0 16px;
-            border-bottom:1px solid {BORDER}; padding-bottom:12px; }}
-        .dlp-card-head .ic {{ color:{ORANGE}; font-size:15px;
-            filter: drop-shadow(0 0 8px rgba(var(--accent-rgb),.45)); }}
+        .dlp-card-head {{ display:flex; align-items:center; gap:10px; margin: 6px 0 12px;
+            border-bottom:1px solid {BORDER}; padding-bottom:9px; }}
+        .dlp-card-head .ic {{
+            display:inline-flex; align-items:center; justify-content:center;
+            width:26px; height:26px; border-radius:8px; flex:0 0 auto; font-size:11px; color:{GOLD};
+            background: linear-gradient(135deg, rgba(var(--accent-rgb),.28) 0%, rgba(var(--accent-rgb),.07) 100%);
+            border:1px solid rgba(var(--accent-rgb),.38);
+            box-shadow: 0 3px 12px rgba(var(--accent-rgb),.16), inset 0 1px 0 rgba(255,255,255,.10); }}
         .dlp-card-head .tx {{ font-family:{FONT_FAMILY}; font-weight:600; text-transform:none;
-            letter-spacing:-0.01em; color:var(--text-hi); font-size:15.5px; }}
+            letter-spacing:-0.01em; color:var(--text-hi); font-size:16px; font-weight:650; }}
         .dlp-card-head .hint {{ font-family:{FONT_FAMILY}; color:{TEXT_LO}; font-size:12.5px;
             margin-left:auto; }}
 
@@ -540,27 +672,6 @@ def inject_css() -> None:
         div[data-testid="stExpander"] summary {{ font-family:{MONO}; text-transform:uppercase;
             letter-spacing:.08em; font-size:13px; }}
 
-        /* ── Menú de resultados del buscador (panel elevado, se separa del fondo) ── */
-        div[class*="st-key-searchmenu"] {{
-            background: linear-gradient(180deg, #15181D 0%, #0D0F12 100%);
-            border: 1px solid rgba(var(--accent-rgb),.40); border-radius: 14px;
-            padding: 12px 14px 6px; margin: 6px 0 14px;
-            box-shadow: 0 20px 54px rgba(0,0,0,.6); animation: dlpFadeUp .2s ease both;
-        }}
-        .dlp-search-hd {{ font-family:{MONO}; text-transform:uppercase; letter-spacing:.14em;
-            font-size:10px; color:{TEXT_LO}; margin: 2px 2px 8px; }}
-        /* Tarjeta de un ticker: código a la izq (con color), nombre+bolsa a la der */
-        .dlp-tk {{ display:flex; align-items:center; gap:14px; padding:9px 12px;
-            background:{BG_CARD2}; border:1px solid {BORDER}; border-radius:11px;
-            transition: transform .15s var(--dlp-ease-out), border-color .15s var(--dlp-ease-out); }}
-        .dlp-tk:hover {{ border-color: rgba(var(--accent-rgb),.45); transform: translateX(2px); }}
-        .dlp-tk .code {{ font-family:{MONO}; font-weight:800; font-size:18px; min-width:72px;
-            text-align:center; padding:8px 6px; border:1px solid; border-radius:9px;
-            background:rgba(0,0,0,.28); }}
-        .dlp-tk .meta {{ margin-left:auto; text-align:right; line-height:1.3; }}
-        .dlp-tk .meta .nm {{ color:{TEXT_MD}; font-size:13.5px; font-weight:600; }}
-        .dlp-tk .meta .ex {{ color:{TEXT_LO}; font-size:11px; font-family:{MONO}; letter-spacing:.06em; }}
-
         /* ── Tooltips de ayuda (?) — popover con color para que se note ── */
         [data-testid="stTooltipContent"] {{
             background:{BG_CARD2} !important; color:{TEXT_MD} !important;
@@ -574,7 +685,7 @@ def inject_css() -> None:
         div.st-key-addb button {{
             background: rgba(var(--info-rgb),.10) !important; color:{BLUE} !important;
             border:1.5px dashed rgba(var(--info-rgb),.7) !important; border-radius:12px !important;
-            padding:14px 18px !important; font-family:{MONO} !important; font-weight:800 !important;
+            padding:9px 16px !important; font-family:{MONO} !important; font-weight:800 !important;
             text-transform:uppercase; letter-spacing:.08em; animation:none !important; }}
         div.st-key-addb button {{ transition: transform .16s var(--dlp-ease-out), background .16s var(--dlp-ease-out); }}
         div.st-key-addb button:hover {{ background: rgba(var(--info-rgb),.18) !important;
@@ -597,7 +708,8 @@ def inject_css() -> None:
         .dlp-side .nm {{ font-family:{MONO}; font-weight:800; letter-spacing:.10em; font-size:13px; }}
         .dlp-side .big {{ font-family:{MONO}; font-weight:800; font-size:27px; margin:2px 0; }}
         .dlp-side .sub {{ color:{TEXT_LO}; font-size:11px; }}
-        .dlp-vs-badge {{ display:flex; align-items:center; justify-content:center; min-height:300px; }}
+        .dlp-vs-badge {{ display:flex; align-items:center; justify-content:center;
+            min-height:0; height:100%; }}
         .dlp-vs-badge span {{ width:48px; height:48px; border-radius:50%; border:1.5px solid {GOLD};
             color:{GOLD}; font-family:{MONO}; font-weight:800; font-size:14px; letter-spacing:.06em;
             display:flex; align-items:center; justify-content:center;
@@ -653,7 +765,7 @@ def inject_css() -> None:
         /* ── Cápsula que encierra los resultados (marco metálico sutil, distinto del fondo) ── */
         div[class*="st-key-results-capsule"] {{
             background: rgba(13,15,18,.45); border: 1px solid rgba(var(--accent-rgb),.16);
-            border-radius: 22px; padding: 10px 16px 16px; margin-top: 16px;
+            border-radius: 18px; padding: 10px 14px 14px; margin-top: 14px;
             box-shadow: inset 0 1px 0 rgba(var(--accent-rgb),.06), 0 10px 40px rgba(0,0,0,.35); }}
 
         /* ── Sub-cards del builder (dona + "En tu portafolio"): metálico más claro ── */
@@ -696,46 +808,71 @@ def inject_css() -> None:
         /* ── Barra de secciones (Resumen/Análisis/…): CENTRADA, estilo pestañas premium ── */
         /* Centrado robusto: el stRadio y sus wrappers ocupan el 100% del ancho, así que
            se centra el CONTENIDO en cada nivel de la cadena (no el contenedor). */
-        div[class*="st-key-sectbar_"] {{ margin:4px 0 18px; }}
+        div[class*="st-key-sectbar_"] {{ margin:2px 0 14px; align-items:center !important;
+            position:relative; }}
+        /* Separador dorado con brillo BAJO la barra: ::after absoluto dentro del margen
+           que ya existe — no ocupa espacio, nada se mueve un píxel. */
+        div[class*="st-key-sectbar_"]::after {{
+            content:""; position:absolute; left:8%; right:8%; bottom:-7px; height:1px;
+            background: linear-gradient(90deg,
+                rgba(var(--accent-rgb),0) 0%, rgba(var(--accent-rgb),.45) 18%,
+                rgba(var(--accent-rgb),.65) 50%, rgba(var(--accent-rgb),.45) 82%,
+                rgba(var(--accent-rgb),0) 100%);
+            box-shadow: 0 0 8px rgba(var(--accent-rgb),.4), 0 0 2px rgba(var(--accent-rgb),.55);
+            pointer-events:none; }}
         div[class*="st-key-sectbar_"] [data-testid="stRadio"],
         div[class*="st-key-sectbar_"] [data-testid="stRadio"] > div {{
             width:100% !important; display:flex !important; justify-content:center !important; }}
+        /* El carril = píldora contenedora */
         div[class*="st-key-sectbar_"] [role="radiogroup"] {{
-            display:inline-flex !important; justify-content:center; flex-wrap:nowrap; gap:2px;
+            display:inline-flex !important; justify-content:center; flex-wrap:nowrap; gap:3px;
             margin:0 auto !important; width:auto !important; max-width:100%;
-            background:{BG_CARD}; border:1px solid {BORDER}; border-radius:12px; padding:4px; }}
-        /* Cada opción como pestaña; se oculta el círculo del radio */
+            background:{BG_CARD}; border:1px solid {HAIRLINE_2}; border-radius:14px; padding:5px;
+            box-shadow: {INSET_HI}, {SHADOW_1}; }}
         div[class*="st-key-sectbar_"] [role="radiogroup"] label {{
-            margin:0 !important; padding:7px 11px !important; border-radius:9px !important;
-            white-space:nowrap !important;
+            margin:0 !important; padding:8px 12px !important; border-radius:10px !important;
+            white-space:nowrap !important; display:flex !important; align-items:center;
             border:1px solid transparent !important; background:transparent !important;
             cursor:pointer;
-            transition: background .18s var(--dlp-ease-out), border-color .18s var(--dlp-ease-out); }}
-        /* Círculo del radio: visible y apagado; se enciende en oro al seleccionar */
-        div[class*="st-key-sectbar_"] [role="radiogroup"] label > div:first-child {{
-            display:inline-flex !important; margin-right:5px !important; }}
-        div[class*="st-key-sectbar_"] [role="radiogroup"] label > div:first-child > div {{
-            background:transparent !important; border:1.5px solid {TEXT_DIM} !important;
-            width:11px !important; height:11px !important;
-            transition: border-color var(--dur-2) var(--dlp-ease-out),
-                        background var(--dur-2) var(--dlp-ease-out),
+            transition: background var(--dur-2) var(--dlp-ease-out),
+                        border-color var(--dur-2) var(--dlp-ease-out),
                         box-shadow var(--dur-2) var(--dlp-ease-out); }}
-        div[class*="st-key-sectbar_"] [role="radiogroup"] label:has(input:checked) > div:first-child > div {{
-            background:{ORANGE} !important; border-color:{GOLD} !important;
-            box-shadow:0 0 0 3px rgba(var(--accent-rgb),.18) !important; }}
+        /* El radio NATIVO se oculta DE VERDAD (todas las variantes del DOM BaseWeb) */
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label > div:first-child,
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label > span:first-child {{
+            display:none !important; }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label input[type="radio"] {{
+            appearance:none !important; -webkit-appearance:none !important;
+            position:absolute !important; opacity:0 !important;
+            width:0 !important; height:0 !important; margin:0 !important; padding:0 !important;
+            border:0 !important; background:none !important; pointer-events:none !important; }}
+        /* Etiqueta + punto PROPIO dibujado (no el del radio) */
         div[class*="st-key-sectbar_"] [role="radiogroup"] label p {{
-            font-family:{FONT_FAMILY} !important; font-size:11.5px !important; font-weight:600 !important;
-            text-transform:none; letter-spacing:0; color:{TEXT_LO} !important; margin:0 !important;
-            white-space:nowrap !important;
-            transition: color .18s var(--dlp-ease-out); }}
-        div[class*="st-key-sectbar_"] [role="radiogroup"] label:hover {{ background:rgba(var(--accent-rgb),.06) !important; }}
+            font-family:{MONO} !important; font-size:11px !important; font-weight:700 !important;
+            text-transform:uppercase; letter-spacing:.05em;
+            color:{TEXT_DIM} !important; margin:0 !important;
+            display:flex; align-items:center; white-space:nowrap !important;
+            transition: color var(--dur-2) var(--dlp-ease-out); }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label p::before {{
+            content:""; width:8px; height:8px; border-radius:50%;
+            border:1.5px solid rgba(255,255,255,.25); background:transparent;
+            margin-right:7px; flex:0 0 auto;
+            transition: background var(--dur-2) var(--dlp-ease-out),
+                        border-color var(--dur-2) var(--dlp-ease-out),
+                        box-shadow var(--dur-2) var(--dlp-ease-out); }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label:hover {{
+            background:rgba(var(--accent-rgb),.06) !important; }}
         div[class*="st-key-sectbar_"] [role="radiogroup"] label:hover p {{ color:{TEXT_MD} !important; }}
-        /* Seleccionada: superficie metálica + borde y texto dorados */
+        /* ACTIVA: borde dorado + halo + punto "donut" encendido */
         div[class*="st-key-sectbar_"] [role="radiogroup"] label:has(input:checked) {{
-            background:{METAL_BG} !important; border-color:{GOLD_HOVER} !important;
-            box-shadow:0 2px 14px rgba(var(--accent-rgb),.16) !important; }}
+            background:rgba(var(--accent-rgb),.07) !important;
+            border-color:rgba(var(--accent-rgb),.55) !important;
+            box-shadow: 0 0 16px rgba(var(--accent-rgb),.16), {INSET_HI} !important; }}
         div[class*="st-key-sectbar_"] [role="radiogroup"] label:has(input:checked) p {{
             color:{ORANGE} !important; }}
+        div[class*="st-key-sectbar_"] [role="radiogroup"] label:has(input:checked) p::before {{
+            background:{ORANGE}; border-color:{ORANGE};
+            box-shadow: 0 0 8px rgba(var(--accent-rgb),.55), inset 0 0 0 2px rgba(10,11,13,.55); }}
 
         /* ── Slider de horizonte: grueso, protagonista, con glow dorado ── */
         .stSlider [data-baseweb="slider"] {{ padding-top:12px !important; padding-bottom:2px !important; }}
@@ -751,7 +888,74 @@ def inject_css() -> None:
         /* ── Reduced motion (Apple/accesibilidad): sin movimiento vestibular ────
            colapsa bucles perpetuos y quita los desplazamientos de hover/entrada,
            conservando los cambios de opacidad/color que ayudan a comprender. */
+        /* ── Responsive de las filas-pareja (namespace st-key-pair-*) ─────────
+           Streamlit solo apila columnas en ~640px; entre 640 y 900 quedarían
+           apretujadas. Grid real a 1 columna, con min-width:0 para que Plotly
+           no desborde el carril. Solo afecta a los contenedores pair-. */
+        @media (max-width: 899px) {{
+            [data-testid="stHorizontalBlock"]:has([class*="st-key-pair-"]),
+            div[class*="st-key-pair-"] [data-testid="stHorizontalBlock"] {{
+                display: grid !important;
+                grid-template-columns: 1fr !important;
+                gap: 10px !important;
+            }}
+            div[class*="st-key-pair-"] [data-testid="stColumn"] {{
+                width: 100% !important; min-width: 0 !important; flex: none !important;
+            }}
+        }}
+
+
+        /* ═══ F7 · CAPA DE MOVIMIENTO Y TEXTURA (patrones Analyzer) ═════════ */
+
+        /* Entrada de tarjetas: fadeUp corto con fill BACKWARDS (suelta el transform
+           al terminar — jamás un containing block permanente). */
+        div[class*="st-key-card-"] {{
+            animation: dlpFadeUp .42s var(--dlp-ease-out) backwards;
+            position: relative;
+        }}
+        /* Cascada por columna en las filas-pareja y de KPIs (tope 320ms) */
+        [data-testid="stColumn"]:nth-child(2) div[class*="st-key-card-"],
+        [data-testid="stColumn"]:nth-child(2) .dlp-kpi {{ animation-delay: 60ms; }}
+        [data-testid="stColumn"]:nth-child(3) div[class*="st-key-card-"],
+        [data-testid="stColumn"]:nth-child(3) .dlp-kpi {{ animation-delay: 120ms; }}
+        [data-testid="stColumn"]:nth-child(4) .dlp-kpi {{ animation-delay: 180ms; }}
+
+        /* Glow de esquina al hover (6%: casi nada, se nota) + lift de 1px.
+           Solo con puntero fino: en táctil no hay hover fantasma. */
+        div[class*="st-key-card-"]::after {{
+            content:""; position:absolute; top:0; right:0; width:150px; height:150px;
+            background: radial-gradient(circle at top right, var(--accent) 0%, transparent 65%);
+            border-top-right-radius: 18px; opacity:0;
+            transition: opacity .35s var(--dlp-ease-out); pointer-events:none;
+        }}
+        @media (hover: hover) and (pointer: fine) {{
+            div[class*="st-key-card-"] {{
+                transition: border-color var(--dur-2) var(--dlp-ease-out),
+                            transform var(--dur-2) var(--dlp-ease-out),
+                            box-shadow var(--dur-2) var(--dlp-ease-out);
+            }}
+            div[class*="st-key-card-"]:hover {{
+                transform: translateY(-1px);
+                box-shadow: {INSET_HI}, {SHADOW_2};
+            }}
+            div[class*="st-key-card-"]:hover::after {{ opacity:.06; }}
+        }}
+        @media (hover: none) {{
+            div[class*="st-key-card-"]:hover, .dlp-kpi:hover {{ transform:none; }}
+        }}
+
+
+        /* Tooltip del "?": en la primera columna se abre hacia la DERECHA
+           (hacia adentro del iframe, no hacia afuera). */
+        [data-testid="stColumn"]:first-child .dlp-kpi-help::after {{
+            right:auto; left:-8px;
+        }}
+
         @media (prefers-reduced-motion: reduce) {{
+            div[class*="st-key-card-"], div[class*="st-key-card-"]:hover {{ transform:none !important; }}
+            div[class*="st-key-q_"]::before {{ animation:none !important; }}
+            div[class*="st-key-donutcard_"] .js-plotly-plot {{ animation:none !important; }}
+            .stPlotlyChart g.slice:hover path.surface {{ transform:none !important; }}
             *, *::before, *::after {{
                 animation-duration: .001ms !important;
                 animation-iteration-count: 1 !important;

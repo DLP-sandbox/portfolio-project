@@ -46,7 +46,7 @@ def _apply_dlp_layout(fig: go.Figure, x_title: str, y_title: str, height: int = 
         paper_bgcolor="rgba(0,0,0,0)",   # transparente → se integra con la tarjeta metálica
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family=S.MONO, color=S.TEXT_MD, size=12),
-        margin=dict(l=96, r=30, t=34, b=55),
+        margin=dict(l=48, r=12, t=28, b=32),
         hovermode="x unified",
         showlegend=False,
         hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
@@ -55,7 +55,7 @@ def _apply_dlp_layout(fig: go.Figure, x_title: str, y_title: str, height: int = 
     axis = dict(
         gridcolor=S.GRID_HAIR, zerolinecolor=S.GRID_ZERO,
         linecolor=S.GRID_HAIR, tickfont=dict(color=S.TEXT_LO),
-        title_font=dict(color=S.TEXT_LO, size=13), title_standoff=16,
+        title_font=dict(color=S.TEXT_LO, size=13), title_standoff=8,
     )
     fig.update_xaxes(title=x_title, **axis)
     fig.update_yaxes(title=y_title, **axis)
@@ -78,10 +78,10 @@ def _add_glow_line(fig: go.Figure, x, y, color: str, glow_rgba: tuple[str, str])
     discretas en vez del triple glow: el dato manda, el efecto acompaña.
     """
     fig.add_trace(go.Scatter(x=x, y=y, mode="lines",
-                             line=dict(color=glow_rgba[0], width=9, shape="spline", smoothing=0.5),
+                             line=dict(color=glow_rgba[0], width=14, shape="spline", smoothing=0.5),
                              hoverinfo="skip", showlegend=False))
     fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name="Mediana",
-                             line=dict(color=color, width=2.6, shape="spline", smoothing=0.5),
+                             line=dict(color=color, width=3.0, shape="spline", smoothing=0.5),
                              hoverinfo="skip", showlegend=False))
 
 
@@ -97,8 +97,8 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None,
     fig = go.Figure()
 
     # Banda externa P5-P95 (alpha 0.15) y banda interna P25-P75 (alpha 0.30)
-    _add_band(fig, x, percentiles["P5"], percentiles["P95"], "rgba(226,178,92,0.15)")
-    _add_band(fig, x, percentiles["P25"], percentiles["P75"], "rgba(226,178,92,0.30)")
+    _add_band(fig, x, percentiles["P5"], percentiles["P95"], "rgba(201,133,0,0.15)")
+    _add_band(fig, x, percentiles["P25"], percentiles["P75"], "rgba(201,133,0,0.30)")
 
     # Línea "Aportado" (gris): capital + aportes acumulados, sin rendimiento.
     if initial_capital is not None and monthly_contribution is not None:
@@ -108,12 +108,12 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None,
                                  hovertemplate="<b>Aportado</b>: $%{y:,.0f}<extra></extra>"))
 
     # Mediana con glow triple
-    _add_glow_line(fig, x, percentiles["P50"], S.ORANGE,
-                   ("rgba(226,178,92,0.18)", "rgba(226,178,92,0.35)"))
+    _add_glow_line(fig, x, percentiles["P50"], S.SERIES_A,
+                   ("rgba(201,133,0,0.18)", "rgba(201,133,0,0.35)"))
 
     # Trazas invisibles para hover unificado (mín / invertido / máx).
     for name, key, col in [("Pesimista (P5)", "P5", S.RED),
-                           ("Invertido (mediana)", "P50", S.ORANGE),
+                           ("Invertido (mediana)", "P50", S.SERIES_A),
                            ("Optimista (P95)", "P95", S.GREEN)]:
         fig.add_trace(go.Scatter(
             x=x, y=percentiles[key], mode="lines", name=name, showlegend=False,
@@ -126,13 +126,13 @@ def fan_chart(percentiles: dict, n_months: int, target: float | None = None,
                       annotation_text="Meta", annotation_position="top left",
                       annotation_font=dict(color=S.GREEN, size=12))
 
-    _apply_dlp_layout(fig, "Años", "Patrimonio (USD)", height=340)
+    _apply_dlp_layout(fig, "Años", "", height=260)
     # Escala LINEAL: así la línea "Aportado" (aportes constantes) se ve realmente recta y se
     # aprecia la brecha con lo "Invertido" (interés compuesto).
-    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    fig.update_yaxes(tickprefix="$", tickformat="~s")
     # Línea guía vertical + año formateado para leer el abanico con el cursor
     fig.update_xaxes(hoverformat=".1f", showspikes=True, spikemode="across",
-                     spikethickness=1, spikedash="dot", spikecolor="rgba(226,178,92,0.55)")
+                     spikethickness=1, spikedash="dot", spikecolor="rgba(201,133,0,0.55)")
     fig.update_layout(hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
                                       font=dict(family=S.MONO, color=S.TEXT_HI)))
     return fig
@@ -158,7 +158,7 @@ def histogram_final(final_values: np.ndarray, bins: int = 60, plain_labels: bool
     centers = (edges[:-1] + edges[1:]) / 2.0
 
     colors = np.where(centers <= p5, S.RED,
-                      np.where(centers >= p95, S.GREEN, S.ORANGE))
+                      np.where(centers >= p95, S.GREEN, S.SERIES_A))
 
     fig = go.Figure(go.Bar(
         x=centers, y=counts, marker=dict(color=colors, line=dict(width=0)), opacity=0.92,
@@ -167,17 +167,17 @@ def histogram_final(final_values: np.ndarray, bins: int = 60, plain_labels: bool
     ))
     # Contorno con glow (firma DLP): traza la silueta de la distribución con brillo dorado.
     fig.add_trace(go.Scatter(x=centers, y=counts, mode="lines", hoverinfo="skip", showlegend=False,
-                             line=dict(color="rgba(226,178,92,0.16)", width=10, shape="spline", smoothing=0.6)))
+                             line=dict(color="rgba(201,133,0,0.16)", width=10, shape="spline", smoothing=0.6)))
     fig.add_trace(go.Scatter(x=centers, y=counts, mode="lines", hoverinfo="skip", showlegend=False,
-                             line=dict(color="rgba(240,200,120,0.9)", width=2.2, shape="spline", smoothing=0.6)))
+                             line=dict(color="rgba(224,166,46,0.9)", width=2.2, shape="spline", smoothing=0.6)))
 
     lbl = (["Peor 5%", "Típico", "Mejor 5%"] if plain_labels else ["P5", "Mediana", "P95"])
-    for value, color, label in [(p5, S.RED, lbl[0]), (p50, S.ORANGE, lbl[1]), (p95, S.GREEN, lbl[2])]:
+    for value, color, label in [(p5, S.RED, lbl[0]), (p50, S.SERIES_A, lbl[1]), (p95, S.GREEN, lbl[2])]:
         fig.add_vline(x=value, line=dict(color=color, width=2, dash="dash"),
                       annotation_text=label, annotation_position="top",
                       annotation_font=dict(color=color, size=12))
 
-    _apply_dlp_layout(fig, "Patrimonio final (USD)", "Cantidad de escenarios", height=300)
+    _apply_dlp_layout(fig, "Patrimonio final (USD)", "", height=200)
     pad = (hi - lo) * 0.02
     fig.update_xaxes(tickprefix="$", tickformat="~s", range=[max(0.0, lo - pad), hi + pad])
     fig.update_layout(bargap=0.02, hovermode="x")
@@ -219,11 +219,13 @@ def success_gauge(prob: float, target_label: str = "") -> go.Figure:
 
 # (color principal, (glow exterior, glow interior), fill de banda) por escenario
 _COMPARE_STYLES = [
-    (S.ORANGE, ("rgba(226,178,92,0.16)", "rgba(226,178,92,0.32)"), "rgba(226,178,92,0.08)"),
-    (S.BLUE, ("rgba(111,163,224,0.16)", "rgba(111,163,224,0.32)"), "rgba(111,163,224,0.08)"),
-    (S.PURPLE, ("rgba(157,140,224,0.16)", "rgba(157,140,224,0.32)"), "rgba(157,140,224,0.08)"),
-    (S.GREEN, ("rgba(61,214,140,0.14)", "rgba(61,214,140,0.30)"), "rgba(61,214,140,0.07)"),
+    (S.SERIES_A, ("rgba(201,133,0,0.16)", "rgba(201,133,0,0.32)"), "rgba(201,133,0,0.08)"),
+    (S.SERIES_B, ("rgba(57,135,229,0.16)", "rgba(57,135,229,0.32)"), "rgba(57,135,229,0.08)"),
+    (S.SERIES_C, ("rgba(213,81,129,0.16)", "rgba(213,81,129,0.32)"), "rgba(213,81,129,0.08)"),
+    (S.SERIES[2], ("rgba(25,158,112,0.14)", "rgba(25,158,112,0.30)"), "rgba(25,158,112,0.07)"),
 ]
+# El S&P es la vara de medir, no un competidor: gris neutro y guiones.
+_BENCH_STYLE = (S.BENCH_NEUTRAL, ("rgba(141,148,158,0.14)", "rgba(141,148,158,0.28)"), "rgba(141,148,158,0.07)")
 
 
 def comparison_fan_chart(scenarios: list[dict], n_months: int, target: float | None = None) -> go.Figure:
@@ -234,7 +236,8 @@ def comparison_fan_chart(scenarios: list[dict], n_months: int, target: float | N
     x = np.arange(n_months + 1) / 12.0
     fig = go.Figure()
     for i, sc in enumerate(scenarios[:4]):
-        color, glow, band_fill = _COMPARE_STYLES[i % len(_COMPARE_STYLES)]
+        es_bench = str(sc.get("label", "")).strip().upper().startswith("S&P")
+        color, glow, band_fill = _BENCH_STYLE if es_bench else _COMPARE_STYLES[i % len(_COMPARE_STYLES)]
         p = sc["percentiles"]
         # Banda P5-P95 tenue
         fig.add_trace(go.Scatter(x=x, y=p["P95"], mode="lines", line=dict(width=0),
@@ -248,14 +251,16 @@ def comparison_fan_chart(scenarios: list[dict], n_months: int, target: float | N
         fig.add_trace(go.Scatter(x=x, y=p["P50"], mode="lines", hoverinfo="skip", showlegend=False,
                                  line=dict(color=glow[1], width=9, shape="spline", smoothing=0.5)))
         fig.add_trace(go.Scatter(x=x, y=p["P50"], mode="lines", name=sc["label"],
-                                 line=dict(color=color, width=4, shape="spline", smoothing=0.5),
+                                 line=dict(color=color, width=3 if es_bench else 4,
+                                           dash="dash" if es_bench else "solid",
+                                           shape="spline", smoothing=0.5),
                                  hovertemplate=f"{sc['label']}<br>Año %{{x:.1f}}: $%{{y:,.0f}}<extra></extra>"))
     if target:
         fig.add_hline(y=target, line=dict(color=S.GREEN, width=2, dash="dash"),
                       annotation_text="Meta", annotation_position="top left",
                       annotation_font=dict(color=S.GREEN, size=12))
 
-    _apply_dlp_layout(fig, "Años", "Patrimonio (USD)", height=340)
+    _apply_dlp_layout(fig, "Años", "", height=260)
     # Escala Y log si hay crecimiento compuesto fuerte: hace visible la trayectoria y las
     # diferencias entre portafolios en TODOS los años, no solo en el tramo final.
     bounds: list = []
@@ -274,42 +279,44 @@ def comparison_fan_chart(scenarios: list[dict], n_months: int, target: float | N
 # activos se ve exactamente igual que antes. Los 12 siguientes extienden la paleta
 # hasta el nuevo tope de 20, en el mismo registro apagado del tema (nada estridente)
 # y alternando familia de color para que dos porciones vecinas nunca se confundan.
-DONUT_COLORS = [
-    S.ORANGE, S.BLUE, S.PURPLE, S.GREEN, S.GOLD, S.TEXT_LO, S.RED, S.ORANGE_DK,
-    "#4FBFB0",  # verde azulado
-    "#E08CA8",  # rosa apagado
-    S.BLUE_DK,
-    "#D9C48A",  # arena
-    S.GREEN_DK,
-    "#B9A9F0",  # lavanda
-    "#B87A3E",  # bronce
-    "#6BB8D6",  # cian polvoriento
-    S.RED_DK,
-    "#8FBF7A",  # salvia
-    "#7C8AA6",  # azul pizarra
-    "#B98BA8",  # malva
-]
+# Paleta de la dona = la serie categórica validada (8). La cola se agrupa en
+# "Otros" dentro de allocation_donut: el 9.º hue es indistinguible bajo CVD.
+DONUT_COLORS = list(S.SERIES)
 
 
-def allocation_donut(items: list[dict], lead_color: str | None = None) -> go.Figure:
+def allocation_donut(items: list[dict], lead_color: str | None = None,
+                     show_labels: bool = False) -> go.Figure:
     """Dona de la composición del portafolio. `items`: [{symbol, weight}, ...].
 
     `lead_color`: si se pasa, la paleta arranca por ese color (identidad A=naranja / B=azul)
     y el número del centro toma ese color.
     """
-    labels = [it["symbol"] for it in items]
-    values = [max(float(it.get("weight", 0)), 0.0) for it in items]
+    pares = [(it["symbol"], max(float(it.get("weight", 0)), 0.0),
+              str(it.get("name") or it["symbol"])) for it in items]
+    # Cola agrupada: con más de 8 porciones el 9.º color ya no se distingue (CVD).
+    # Se conservan las 7 mayores y el resto se suma en "Otros" (gris neutro).
+    if len(pares) > 8:
+        pares = sorted(pares, key=lambda kv: -kv[1])
+        cola = sum(v for _, v, _ in pares[7:])
+        pares = pares[:7] + [("Otros", cola, "Resto del portafolio")]
+    labels = [k for k, _, _ in pares]
+    values = [v for _, v, _ in pares]
+    nombres = [n for _, _, n in pares]
     base = DONUT_COLORS
     if lead_color and lead_color in base:
         i0 = base.index(lead_color)
         base = base[i0:] + base[:i0]
-    colors = [base[i % len(base)] for i in range(len(items))]
+    colors = [S.SERIES_OTROS if k == "Otros" else base[i % len(base)]
+              for i, (k, _v, _n) in enumerate(pares)]
     fig = go.Figure(go.Pie(
         labels=labels, values=values, hole=0.62, sort=False, direction="clockwise",
-        marker=dict(colors=colors, line=dict(color=S.BG_CARD, width=3)),
-        textinfo="label+percent", textposition="inside", insidetextorientation="horizontal",
-        textfont=dict(family=S.MONO, color="#0A0B0D", size=11),
-        hovertemplate="%{label}: %{percent}<extra></extra>",
+        marker=dict(colors=colors, line=dict(color="#07080B", width=3)),
+        # En la APP las porciones van limpias (la lectura es el popup del hover);
+        # en el PDF no hay hover, así que ahí las etiquetas SÍ se imprimen.
+        textinfo=("label+percent" if show_labels else "none"),
+        textposition="inside", insidetextorientation="horizontal",
+        textfont=dict(family=S.MONO, color=S.TEXT_HI, size=11),
+        hovertemplate="<b>%{label}</b><br>%{percent}<extra></extra>",
     ))
     n = len(items)
     fig.add_annotation(text=f"<b>{n}</b><br><span style='font-size:11px'>activo{'s' if n != 1 else ''}</span>",
@@ -317,51 +324,15 @@ def allocation_donut(items: list[dict], lead_color: str | None = None) -> go.Fig
                        font=dict(family=S.MONO, color=(lead_color or S.TEXT_HI), size=24))
     # uniformtext oculta la etiqueta si no cabe (en vez de recortarla o solaparla)
     fig.update_traces(automargin=True)
-    fig.update_layout(height=260, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      showlegend=False, margin=dict(l=8, r=8, t=8, b=8),
+    fig.update_layout(height=200, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      showlegend=False, margin=dict(l=28, r=28, t=28, b=28),
                       uniformtext=dict(minsize=9, mode="hide"),
                       font=dict(family=S.MONO, color=S.TEXT_MD),
-                      hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
-                                      font=dict(family=S.MONO, color=S.TEXT_MD)))
-    return fig
-
-
-def stress_bar(stress: dict) -> go.Figure:
-    """Barras horizontales: caída estimada del portafolio ante cada evento histórico."""
-    evs = stress["events"]
-    names = [e["name"] for e in evs]
-    dd = [e["portfolio_drawdown"] * 100 for e in evs]
-    vals = [e["value_after"] for e in evs]
-    fig = go.Figure(go.Bar(
-        y=names, x=dd, orientation="h",
-        marker=dict(color=S.RED, line=dict(width=0)),
-        text=[f"−{d:.0f}%  →  ${v:,.0f}" for d, v in zip(dd, vals)],
-        textposition="auto", textfont=dict(color=S.TEXT_HI, size=12, family=S.MONO),
-        hovertemplate="%{y}: −%{x:.0f}%<extra></extra>",
-    ))
-    _apply_dlp_layout(fig, "Caída estimada de tu portafolio (%)", "", height=300)
-    fig.update_yaxes(autorange="reversed", automargin=True)
-    fig.update_layout(hovermode="y", margin=dict(l=180, r=30, t=30, b=55))
-    return fig
-
-
-def sequence_lines(sequence: dict) -> go.Figure:
-    """3 trayectorias de patrimonio con el mismo set de retornos en distinto orden."""
-    fig = go.Figure()
-    colors = [S.BLUE, S.ORANGE, S.GOLD]
-    for (name, data), col in zip(sequence["orderings"].items(), colors):
-        path = data["path"]
-        x = list(range(len(path)))
-        fig.add_trace(go.Scatter(
-            x=x, y=path, mode="lines",
-            name=f"{name} → ${data['terminal']:,.0f}",
-            line=dict(color=col, width=3.5, shape="spline", smoothing=0.4),
-            hovertemplate=f"{name}<br>Año %{{x}}: $%{{y:,.0f}}<extra></extra>"))
-    _apply_dlp_layout(fig, "Años", "Patrimonio (USD)", height=320)
-    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
-    fig.update_layout(showlegend=True, legend=dict(
-        orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
-        bgcolor="rgba(0,0,0,0)", font=dict(color=S.TEXT_MD, size=12)))
+                      hoverlabel=dict(bgcolor="#1B1F25", bordercolor="rgba(226,178,92,.55)",
+                                      # 13.5 dimensiona la CAJA; el CSS pinta el texto a 11.5
+                                      # → margen vertical garantizado (Plotly mide con una
+                                      # métrica y dibuja con la mono real, más alta).
+                                      font=dict(family=S.MONO, color=S.TEXT_HI, size=13.5)))
     return fig
 
 
@@ -412,9 +383,9 @@ def risk_vs_weight_bar(assets: list[dict], max_rows: int = 8) -> go.Figure:
                          marker=dict(color=S.TEXT_LO, line=dict(color="rgba(255,255,255,.16)", width=1)),
                          hovertemplate="%{y} · Peso: %{x:.0f}%<extra></extra>"))
     fig.add_trace(go.Bar(y=syms, x=rc, orientation="h", name="Riesgo",
-                         marker=dict(color=S.ORANGE, line=dict(color="rgba(255,255,255,.22)", width=1)),
+                         marker=dict(color=S.SERIES_A, line=dict(color="rgba(255,255,255,.22)", width=1)),
                          hovertemplate="%{y} · Riesgo: %{x:.0f}%<extra></extra>"))
-    _apply_dlp_layout(fig, "% del portafolio", "", height=max(240, 34 * len(rows) + 74))
+    _apply_dlp_layout(fig, "% del portafolio", "", height=max(200, 28 * len(rows) + 56))
     fig.update_layout(barmode="group", hovermode="closest", showlegend=True,
                       legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
                                   bgcolor="rgba(0,0,0,0)", font=dict(color=S.TEXT_MD, size=12)),
@@ -456,8 +427,8 @@ def diversification_meter(avg_corr: float, height: int = 220) -> go.Figure:
 
 # ── Exposición por sector / clase de activo ──────────────────────────────────
 _CLASS_COLORS = {
-    "Acciones": S.ORANGE, "ETF": S.BLUE, "Bonos": S.PURPLE,
-    "Materias primas": S.GOLD, "Cripto": S.GREEN, "Sin clasificar": S.TEXT_LO,
+    "Acciones": S.SERIES_A, "ETF": S.SERIES_B, "Bonos": "#9085E9",
+    "Materias primas": "#D95926", "Cripto": S.SERIES_C, "Sin clasificar": S.TEXT_LO,
 }
 
 
@@ -485,7 +456,7 @@ def sector_bar(rows: list[dict], max_rows: int = 6) -> go.Figure:
         textfont=dict(family=S.MONO, color=S.TEXT_MD, size=11),
         hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
     ))
-    _apply_dlp_layout(fig, "", "", height=max(200, 30 * len(rows) + 60))
+    _apply_dlp_layout(fig, "", "", height=max(168, 24 * len(rows) + 48))
     fig.update_layout(hovermode="closest", margin=dict(l=8, r=44, t=16, b=24))
     fig.update_xaxes(showgrid=False, showticklabels=False, zeroline=False,
                      range=[0, max(pcts + [1]) * 1.28])
@@ -505,7 +476,7 @@ def asset_class_bar(rows: list[dict]) -> go.Figure:
             hovertemplate=f"{r['name']}: %{{x:.1f}}%<extra></extra>",
         ))
     fig.update_layout(
-        barmode="stack", height=118, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        barmode="stack", height=84, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=8, r=8, t=8, b=6), showlegend=True,
         legend=dict(orientation="h", yanchor="top", y=0.05, xanchor="center", x=0.5,
                     bgcolor="rgba(0,0,0,0)", font=dict(family=S.MONO, color=S.TEXT_MD, size=11)),
@@ -537,7 +508,7 @@ def stress_drop_bars(stress: dict) -> go.Figure:
     for nm, d in zip(names, drops):
         fig.add_annotation(x=nm, y=0, yshift=16, text=nm, showarrow=False,
                            font=dict(family=S.FONT_FAMILY, size=13.5, color=S.TEXT_HI))
-    _apply_dlp_layout(fig, "", "", height=268)
+    _apply_dlp_layout(fig, "", "", height=220)
     fig.update_layout(hovermode="closest", margin=dict(l=10, r=10, t=40, b=8), bargap=0.45)
     fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False,
                      showline=False, linecolor="rgba(0,0,0,0)")

@@ -362,7 +362,7 @@ def _page3(c, fonts, result, inputs, exposure, stress):
     _card(c, MARGIN, top1, lw, h1, left_accent=C_ORANGE)
     _text(c, MARGIN + PADX, top1 + 18, "TU PORTAFOLIO, ACTIVO POR ACTIVO", fonts["medium"], 14, C_HI)
     try:
-        donut = _chart_png(charts.allocation_donut(items), 660, 262)
+        donut = _chart_png(charts.allocation_donut(items, show_labels=True), 660, 262)
         c.drawImage(ImageReader(donut), MARGIN + (lw - 660) / 2, _y(top1 + h1 - 24), 660, 262, mask="auto")
     except Exception:
         _text(c, MARGIN + PADX, top1 + 150, "(composición no disponible)", fonts["regular"], 13, C_LO)

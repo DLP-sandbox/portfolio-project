@@ -403,6 +403,20 @@ MARKET_PROXY = "SPY"
 RISK_FREE_FALLBACK = 0.04  # si no se puede leer la letra del Tesoro a 13 semanas
 BETA_WINDOW_DAYS = 1260    # ~5 años: tope para la beta de activos con desfase horario
 
+# ── Mezcla CAPM + alfa histórico (estimador de contracción) ──────────────────
+# El CAPM puro converge las medianas: un activo de beta alta gana media aritmética
+# pero el arrastre de volatilidad se la come, y una cartera de crecimiento apenas
+# separaba +1% del S&P. La corrección profesional es contraer hacia el equilibrio
+# SIN tirar la evidencia: μ = CAPM + λ·α, donde α es el exceso HISTÓRICO del activo
+# sobre su equilibrio SIN recortar (rf + β·(mercado_completo − rf)) — así el propio
+# SPY tiene α≈0 por construcción y el benchmark no se infla. El α va acotado (±16%
+# anual), escalado por madurez del historial (un listado de 1 año no puede aportar
+# el α completo) y el total lleva techo de cordura.
+HIST_BLEND = 0.45          # λ: peso de la evidencia histórica sobre el equilibrio
+ALPHA_CAP = 0.18           # |α| máximo anual que un activo puede aportar
+ALPHA_FULL_DAYS = 756      # ~3 años para tener derecho al α completo
+MU_CAP_ANNUAL = 0.35       # techo de cordura del retorno esperado anual
+
 
 def _risk_free_annual() -> float:
     """Tasa libre de riesgo anual (letra del Tesoro a 13 semanas, ^IRX)."""
@@ -489,6 +503,10 @@ def _capm_mean_daily(prices: pd.DataFrame, returns: pd.DataFrame, window_years: 
         yrs = max((full.index[-1] - full.index[0]).days / 365.25, 1.0)
         mkt_cagr = (float(full.iloc[-1]) / float(full.iloc[0])) ** (1.0 / yrs) - 1.0
         premium = float(np.clip(mkt_cagr - rf, 0.03, 0.08))
+        # Media aritmética del mercado en su ventana completa: es la vara del
+        # equilibrio SIN recortar contra la que se mide el alfa de cada activo.
+        r_full = full.pct_change().dropna()
+        mkt_arith = (1.0 + float(r_full.mean())) ** TRADING_DAYS_PER_YEAR - 1.0
         out = []
         for c in cols:
             if _region_of(c) == "AMER":     # mismo horario que SPY: beta de siempre
@@ -497,16 +515,28 @@ def _capm_mean_daily(prices: pd.DataFrame, returns: pd.DataFrame, window_years: 
                 # Y sobre los ~5 últimos años, no sobre los 10: con desfase horario la
                 # ventana larga mide PEOR (CSPX: 0,78 a 10 años frente a 0,93 a 5, cuando
                 # la real es ~1,00 porque tiene las mismas acciones que el S&P 500).
-                # 1.260 días ya son de sobra estadísticamente, y las betas que deben ser
-                # bajas —bonos, oro, Nestlé— no se mueven.
                 a_c, m_c = r_a[c], r_m
                 if len(m_c) > BETA_WINDOW_DAYS:
                     a_c, m_c = a_c.iloc[-BETA_WINDOW_DAYS:], m_c.iloc[-BETA_WINDOW_DAYS:]
                 beta = _dimson_beta(a_c, m_c)
                 if beta is None:
                     beta = float(np.cov(r_a[c].to_numpy(), r_m.to_numpy())[0, 1] / var_m)
-            ann = rf + beta * premium
-            ann = float(np.clip(ann, -0.50, 5.0))  # cordura ante datos degenerados
+            capm_ann = rf + beta * premium
+            # α del activo: su historia COMPLETA (la suya, no la recortada por el
+            # compañero más joven de la cartera) contra su equilibrio sin recortar.
+            alpha = 0.0
+            try:
+                own, own_sample = get_price_history((c,), window_years)
+                if not own_sample and c in own.columns and len(own) >= 60:
+                    r_own = own[c].pct_change().dropna()
+                    hist_ann = (1.0 + float(r_own.mean())) ** TRADING_DAYS_PER_YEAR - 1.0
+                    eq_ann = rf + beta * (mkt_arith - rf)
+                    madurez = min(1.0, len(r_own) / float(ALPHA_FULL_DAYS))
+                    alpha = float(np.clip(hist_ann - eq_ann, -ALPHA_CAP, ALPHA_CAP)) * madurez
+            except Exception:
+                alpha = 0.0
+            ann = capm_ann + HIST_BLEND * alpha
+            ann = float(np.clip(ann, -0.50, MU_CAP_ANNUAL))
             out.append((1.0 + ann) ** (1.0 / TRADING_DAYS_PER_YEAR) - 1.0)
         arr = np.asarray(out, dtype=np.float64)
         return arr if np.all(np.isfinite(arr)) else None

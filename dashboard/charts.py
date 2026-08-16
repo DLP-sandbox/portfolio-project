@@ -476,9 +476,9 @@ def asset_class_bar(rows: list[dict]) -> go.Figure:
             hovertemplate=f"{r['name']}: %{{x:.1f}}%<extra></extra>",
         ))
     fig.update_layout(
-        barmode="stack", height=84, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=8, r=8, t=8, b=6), showlegend=True,
-        legend=dict(orientation="h", yanchor="top", y=0.05, xanchor="center", x=0.5,
+        barmode="stack", height=104, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=34), showlegend=True,
+        legend=dict(orientation="h", yanchor="top", y=-0.30, xanchor="center", x=0.5,
                     bgcolor="rgba(0,0,0,0)", font=dict(family=S.MONO, color=S.TEXT_MD, size=11)),
         font=dict(family=S.MONO, color=S.TEXT_MD),
         hoverlabel=dict(bgcolor=S.BG_CARD2, bordercolor=S.GOLD_HOVER,
@@ -489,7 +489,71 @@ def asset_class_bar(rows: list[dict]) -> go.Figure:
     return fig
 
 
-def stress_drop_bars(stress: dict) -> go.Figure:
+# ── Tacómetro DLP (clon fiel del build_gauge del Analyzer) ───────────────────
+def _thermo_rgba(x: float, alpha: float = 0.15) -> str:
+    """Color continuo del termómetro en x∈[0,100] → rgba. Mismos stops que el
+    Analyzer: rojo → naranja → ámbar → verde claro → verde."""
+    stops = [(0, (241, 73, 95)), (35, (224, 133, 78)), (50, (226, 178, 92)),
+             (65, (99, 223, 163)), (80, (61, 214, 140)), (100, (61, 214, 140))]
+    x = max(0.0, min(100.0, float(x)))
+    for (x0, c0), (x1, c1) in zip(stops, stops[1:]):
+        if x <= x1:
+            t = 0.0 if x1 == x0 else (x - x0) / (x1 - x0)
+            r, g, b = (round(c0[i] + (c1[i] - c0[i]) * t) for i in range(3))
+            return f"rgba({r},{g},{b},{alpha})"
+    r, g, b = stops[-1][1]
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def _gauge_gradient_steps(n: int = 60, alpha: float = 0.16) -> list:
+    w = 100.0 / n
+    return [{"range": [i * w, (i + 1) * w], "color": _thermo_rgba((i + 0.5) * w, alpha)}
+            for i in range(n)]
+
+
+def _thermo_color(x: float) -> str:
+    return _thermo_rgba(x, 1.0).replace("rgba", "rgb").rsplit(",", 1)[0] + ")"
+
+
+def dlp_score_gauge(score: float, word: str, label: str, word_color: str,
+                    height: int = 300) -> go.Figure:
+    """Tacómetro 0-100 con la estética EXACTA del DLP Score del Analyzer:
+    arco fino sobre anillo casi negro con borde dorado, degradado térmico
+    continuo de fondo, ticks hairline, aguja blanca y el número GRANDE como
+    annotation separada (nunca se solapa)."""
+    score = max(0.0, min(100.0, float(score)))
+    sc = _thermo_color(score)
+    fig = go.Figure(go.Indicator(
+        mode="gauge", value=score,
+        domain={"x": [0, 1], "y": [0.34, 1.0]},
+        title={"text": (f"<span style='color:{S.TEXT_LO}'>{label}</span><br>"
+                        f"<span style='font-size:0.72em;color:{word_color}'><b>{word}</b></span>"),
+               "font": {"size": 12.5, "color": S.TEXT_LO, "family": "JetBrains Mono"}},
+        gauge={
+            "axis": {"range": [0, 100], "tickwidth": 1,
+                     "tickcolor": "rgba(255,255,255,0.30)", "ticklen": 6,
+                     "tickfont": {"color": S.TEXT_LO, "size": 8.5, "family": "JetBrains Mono"},
+                     "dtick": 20},
+            "bar": {"color": sc, "thickness": 0.30},
+            "bgcolor": "#0D1015",
+            "borderwidth": 1, "bordercolor": "rgba(226,178,92,0.22)",
+            "steps": _gauge_gradient_steps(n=60, alpha=0.16),
+            "threshold": {"line": {"color": "#F2F3F5", "width": 2},
+                          "thickness": 0.94, "value": score},
+        },
+    ))
+    fig.add_annotation(
+        x=0.5, y=0.10, xref="paper", yref="paper",
+        text=f"<b>{score:.0f}</b><span style='font-size:0.4em;color:{S.TEXT_LO}'>/100</span>",
+        showarrow=False, font=dict(size=44, color=sc, family="JetBrains Mono"),
+        align="center")
+    fig.update_layout(paper_bgcolor="#07080B", plot_bgcolor="#07080B",
+                      font=dict(color=S.TEXT_MD), height=height,
+                      margin=dict(l=44, r=44, t=46, b=12))
+    return fig
+
+
+def stress_drop_bars(stress: dict, show_pcts: bool = False) -> go.Figure:
     """Caídas por crisis histórica: barras VERTICALES que crecen hacia abajo.
 
     Sin cifras dentro de la barra (van debajo, en la UI), borde sólido y esquinas
@@ -504,15 +568,26 @@ def stress_drop_bars(stress: dict) -> go.Figure:
                     line=dict(color="rgba(255,255,255,.22)", width=1.2)),
         hovertemplate="%{x}: %{y:.0f}%<extra></extra>",
     ))
-    # Nombre de cada crisis ARRIBA de su barra, en blanco y grande (se lee mejor)
+    # Nombre de cada crisis ARRIBA de su barra, en DOS líneas y 11px: en la tarjeta
+    # a media pantalla los nombres largos se solapaban entre columnas vecinas.
+    def _dos_lineas(nm: str) -> str:
+        partes = nm.rsplit(" ", 1)
+        return nm if len(partes) == 1 else partes[0] + "<br>" + partes[1]
     for nm, d in zip(names, drops):
-        fig.add_annotation(x=nm, y=0, yshift=16, text=nm, showarrow=False,
-                           font=dict(family=S.FONT_FAMILY, size=13.5, color=S.TEXT_HI))
-    _apply_dlp_layout(fig, "", "", height=220)
-    fig.update_layout(hovermode="closest", margin=dict(l=10, r=10, t=40, b=8), bargap=0.45)
+        fig.add_annotation(x=nm, y=0, yshift=22, text=_dos_lineas(nm), showarrow=False,
+                           align="center",
+                           font=dict(family=S.FONT_FAMILY, size=11, color=S.TEXT_HI))
+    if show_pcts:
+        for nm, d in zip(names, drops):
+            fig.add_annotation(x=nm, y=d, yshift=-16, text=f"−{abs(d):.0f}%",
+                               showarrow=False,
+                               font=dict(family=S.MONO, size=15, color=S.RED))
+    _apply_dlp_layout(fig, "", "", height=248 if show_pcts else 224)
+    fig.update_layout(hovermode="closest",
+                      margin=dict(l=6, r=6, t=48, b=30 if show_pcts else 8), bargap=0.45)
     fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False,
                      showline=False, linecolor="rgba(0,0,0,0)")
     fig.update_yaxes(showgrid=False, zeroline=True, zerolinecolor=S.GRID_ZERO,
                      showticklabels=False, showline=False, linecolor="rgba(0,0,0,0)",
-                     range=[min(drops) * 1.18, 0])
+                     range=[min(drops) * 1.30, 0])
     return fig

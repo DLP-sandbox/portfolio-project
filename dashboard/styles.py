@@ -415,8 +415,27 @@ def inject_css() -> None:
             box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.18), 0 0 18px rgba(var(--accent-rgb),.15) !important;
         }}
 
-        /* Ring-stat: anillo conic con glow (lenguaje del loader) + cifra centrada */
-        .dlp-ring-stat {{ padding: 4px 4px 2px; }}
+        /* Ring-stat: anillo conic con glow, DENTRO del panel-instrumento (mismo
+           tratamiento que las donas: fondo hundido, borde dorado, reflejo). */
+        .dlp-ring-stat {{ padding: 12px 14px 10px; position: relative;
+            background: radial-gradient(ellipse at 50% 32%, #0B0D11 0%, #07080B 100%);
+            border: 1px solid rgba(var(--accent-rgb),.22); border-radius: 14px;
+            box-shadow: inset 0 2px 14px rgba(0,0,0,.55), 0 0 26px rgba(var(--accent-rgb),.08); }}
+        .dlp-ring-stat::after {{
+            content:""; position:absolute; top:0; left:6%; width:88%; height:36%;
+            border-radius: 14px 14px 50% 50%;
+            background: radial-gradient(ellipse at 50% 0%,
+                rgba(255,255,255,.05) 0%, rgba(255,255,255,0) 72%);
+            pointer-events:none; }}
+        .dlp-ring-stat .rs-wrap {{ position: relative; }}
+        .dlp-ring-stat .rs-wrap::before {{
+            content:""; position:absolute; left:50%; top:50%;
+            width:150px; height:150px; transform:translate(-50%,-50%);
+            border-radius:50%;
+            border:1px solid rgba(var(--accent-rgb),.50);
+            box-shadow: 0 0 22px rgba(var(--accent-rgb),.30),
+                        0 0 3px rgba(var(--accent-hi-rgb),.55);
+            pointer-events:none; }}
         .dlp-ring-stat .rs-label {{ color:{TEXT_LO}; font-family:{MONO}; font-size:10.5px;
             font-weight:700; text-transform:uppercase; letter-spacing:.12em; }}
         .dlp-ring-stat .rs-wrap {{ display:flex; justify-content:center; margin:12px 0 8px; }}
@@ -506,14 +525,18 @@ def inject_css() -> None:
         }}
         .stPlotlyChart g.slice path.surface {{
             transform-box: fill-box; transform-origin: center;
+            /* Saturación contenida: elegancia de terminal, no videojuego */
+            filter: saturate(.80) brightness(.94);
             transition: transform .16s var(--dlp-ease-out), filter .16s var(--dlp-ease-out);
         }}
         @media (hover: hover) and (pointer: fine) {{
             .stPlotlyChart g.slice:hover path.surface {{
                 transform: scale(1.055);
-                filter: brightness(1.14) drop-shadow(0 0 12px rgba(255,255,255,.14));
+                filter: saturate(.9) brightness(1.10) drop-shadow(0 0 12px rgba(255,255,255,.14));
             }}
         }}
+        /* La barra apilada por tipo de activo, en el mismo registro apagado */
+        div[class*="st-key-class_"] .js-plotly-plot {{ filter: saturate(.78) brightness(.95); }}
 
         /* ═══ BUSCADOR: borde ROTANDO con destello (conic + máscara de anillo) ═══ */
         @property --dlpang {{ syntax: "<angle>"; initial-value: 0deg; inherits: false; }}
@@ -530,6 +553,26 @@ def inject_css() -> None:
             pointer-events:none; z-index:1;
         }}
         @keyframes dlpRotBorder {{ to {{ --dlpang: 360deg; }} }}
+
+        /* Panel-instrumento genérico (mismo lenguaje que la dona, sin anillos):
+           sectores, tipo de activo y tacómetro de diversificación. */
+        div[class*="st-key-instru_"] {{
+            background: radial-gradient(ellipse at 50% 30%, #0B0D11 0%, #07080B 100%) !important;
+            border: 1px solid rgba(var(--accent-rgb),.22) !important; border-radius: 14px !important;
+            padding: 10px 12px !important;
+            position: relative;
+            box-shadow: inset 0 2px 14px rgba(0,0,0,.55), 0 0 26px rgba(var(--accent-rgb),.08) !important;
+        }}
+        div[class*="st-key-instru_"]::after {{
+            content:""; position:absolute; top:0; left:6%; width:88%; height:38%;
+            border-radius: 14px 14px 50% 50%;
+            background: radial-gradient(ellipse at 50% 0%,
+                rgba(255,255,255,.05) 0%, rgba(255,255,255,0) 72%);
+            pointer-events:none;
+        }}
+
+        /* Aire entre los % del stress y la lectura */
+        div[class*="st-key-card-risk-stress"] .dlp-card {{ margin-top: 12px !important; }}
 
         /* Métrica-a-métrica en 2 columnas (compare) + scroll propio de la tabla-ranking */
         .dlp-vsm-grid {{ display:grid; grid-template-columns:1fr 1fr; column-gap:26px; }}

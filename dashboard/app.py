@@ -657,11 +657,18 @@ def render_analysis_panel(result, inputs, kp) -> None:
         g, an = st.columns([1, 1.25], gap="medium")
         with g:
             _corr = float(s["wavg_corr"])
-            _dcol = S.GREEN if _corr < 0.45 else (S.ORANGE if _corr < 0.75 else S.RED)
-            components.meter_stat("Correlación media del portafolio", f"{_corr:.2f}", _dcol,
-                                  pos=1.0 - max(0.0, min(_corr, 1.0)),
-                                  sub="0 = motores independientes · 1 = todo se mueve junto",
-                                  ends=("todo junto", "independientes"))
+            _score = (1.0 - max(0.0, min(_corr, 1.0))) * 100.0
+            _word = ("INDEPENDIENTES" if _score >= 65 else
+                     "EQUILIBRADO" if _score >= 45 else
+                     "MEZCLA JUSTA" if _score >= 25 else "TODO JUNTO")
+            _wcol = (S.GREEN if _score >= 65 else S.BLUE if _score >= 45 else
+                     S.ORANGE if _score >= 25 else S.RED)
+            with st.container(key=f"instru_div_{kp}"):
+                st.plotly_chart(
+                    charts.dlp_score_gauge(_score, _word, "ÍNDICE DE DIVERSIFICACIÓN", _wcol,
+                                           height=272),
+                    use_container_width=True, config={"displayModeBar": False},
+                    key=f"an_div_{kp}")
         with an:
             st.markdown(
                 f"<div class='dlp-card dlp-card-left dlp-analysis-box' style='border-left-color:{S.ORANGE};'>"
@@ -931,22 +938,25 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             with cc1:
                 st.markdown(f"<div class='dlp-side-title' style='margin:0 0 2px'>Por activo</div>",
                             unsafe_allow_html=True)
-                st.plotly_chart(charts.allocation_donut(items), use_container_width=True,
-                                config={"displayModeBar": False}, key=f"donut_res_{kp}")
+                with st.container(key=f"donutcard_res_{kp}"):
+                    st.plotly_chart(charts.allocation_donut(items), use_container_width=True,
+                                    config={"displayModeBar": False}, key=f"donut_res_{kp}")
             with cc2:
                 st.markdown(f"<div class='dlp-side-title' style='margin:0 0 2px'>Por sector</div>",
                             unsafe_allow_html=True)
                 exp = _exposure_for(inputs)
                 if exp and exp["by_sector"]:
-                    st.plotly_chart(charts.sector_bar(exp["by_sector"]), use_container_width=True,
-                                    config={"displayModeBar": False}, key=f"sector_{kp}")
+                    with st.container(key=f"instru_sector_{kp}"):
+                        st.plotly_chart(charts.sector_bar(exp["by_sector"]), use_container_width=True,
+                                        config={"displayModeBar": False}, key=f"sector_{kp}")
                 else:
                     st.caption("No se pudo clasificar el sector de estos activos.")
             if exp and exp["by_class"]:
                 st.markdown(f"<div class='dlp-side-title' style='margin:6px 0 0'>Por tipo de activo</div>",
                             unsafe_allow_html=True)
-                st.plotly_chart(charts.asset_class_bar(exp["by_class"]), use_container_width=True,
-                                config={"displayModeBar": False}, key=f"class_{kp}")
+                with st.container(key=f"instru_class_{kp}"):
+                    st.plotly_chart(charts.asset_class_bar(exp["by_class"]), use_container_width=True,
+                                    config={"displayModeBar": False}, key=f"class_{kp}")
             _cnote = _currency_note(inputs)
             if _cnote:
                 st.caption(_cnote)
@@ -954,9 +964,7 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             if _snote:
                 st.caption(_snote)
 
-        with st.container(key=f"pair-res-{kp}"):
-            resl, resr = st.columns([1.25, 1], gap="medium")
-        with resl, components.card(f"res-top-{kp}"):
+        with components.card(f"res-top-{kp}"):
             components.card_head("◆", "Tus escenarios a futuro", "de peor a mejor")
             # Los 3 escenarios en UNA fila horizontal, mismo alto y ancho
             k1, k2, k3 = st.columns(3, gap="small")
@@ -975,7 +983,7 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
                                     help="Percentil 95: solo 1 de cada 20 escenarios terminó mejor que esto. "
                                          "Tu 'si va bien' razonable, no el mejor caso absoluto.",
                                     rating=rating.rating(0.87, "Optimista"))
-        with resr, components.card(f"res-interp-{kp}"):
+        with components.card(f"res-interp-{kp}"):
             components.card_head("◆", "¿Qué significa esto?")
             _txt = interpret.interpret_locally(result, inputs, extras.get("stress"))
             _parts = _txt.split("\n\n")
@@ -1073,17 +1081,11 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
             with rr, components.card(f"risk-stress-{kp}"):
                 components.card_head("◆", "Cuánto habría caído en un mal momento",
                                      "análisis de estrés real")
-                st.plotly_chart(charts.stress_drop_bars(sd), use_container_width=True,
+                st.plotly_chart(charts.stress_drop_bars(sd, show_pcts=True),
+                                use_container_width=True,
                                 config={"displayModeBar": False}, key=f"stress_{kp}")
-                # Separador + porcentaje bajo CADA barra, alineado con las columnas del chart
-                st.markdown("<div class='dlp-stress-sep'></div>", unsafe_allow_html=True)
-                cols = st.columns(len(sd["events"]))
-                for col, ev in zip(cols, sd["events"]):
-                    with col:
-                        st.markdown(
-                            f"<div class='dlp-stress-foot'>"
-                            f"<div class='pct'>−{ev['portfolio_drawdown']*100:.0f}%</div></div>",
-                            unsafe_allow_html=True)
+                # Aire entre los % del chart y la lectura de abajo
+                st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
                 _lectura_card(S.ORANGE, interpret.interpret_stress(sd, result, inputs))
         else:
             with components.card(f"risk-interp-{kp}"):
@@ -1204,14 +1206,16 @@ def render_compare(rA, iA, exA, rB, iB, exB, benchmarks, elapsed=None) -> None:
         ca, cv, cb = st.columns([1, 0.18, 1])
         with ca:
             st.markdown(_side_head("A", medA, _compo(iA)), unsafe_allow_html=True)
-            st.plotly_chart(charts.allocation_donut(itemsA, lead_color=PCOLOR["A"]), use_container_width=True,
-                            config={"displayModeBar": False}, key="vs_dA")
+            with st.container(key="donutcard_vsA"):
+                st.plotly_chart(charts.allocation_donut(itemsA, lead_color=PCOLOR["A"]), use_container_width=True,
+                                config={"displayModeBar": False}, key="vs_dA")
         with cv:
             st.markdown("<div class='dlp-vs-badge'><span>VS</span></div>", unsafe_allow_html=True)
         with cb:
             st.markdown(_side_head("B", medB, _compo(iB)), unsafe_allow_html=True)
-            st.plotly_chart(charts.allocation_donut(itemsB, lead_color=PCOLOR["B"]), use_container_width=True,
-                            config={"displayModeBar": False}, key="vs_dB")
+            with st.container(key="donutcard_vsB"):
+                st.plotly_chart(charts.allocation_donut(itemsB, lead_color=PCOLOR["B"]), use_container_width=True,
+                                config={"displayModeBar": False}, key="vs_dB")
     with pcr, components.card("cmp-verdict"):
         components.card_head("◆", "Veredicto", "¿cuál proyecta mejor?")
         verdict, lead = _compare_verdict(rA, iA, rB)
@@ -1412,8 +1416,9 @@ def render_multi(runs: list[dict], benchmarks=None, elapsed=None) -> None:
                     f"font-size:13.5px;letter-spacing:.03em;'>{r['name'][:24]}</b>"
                     f"<span style='color:{S.TEXT_LO};font-size:11px;'> · {len(items)} activos{tag}</span></div>",
                     unsafe_allow_html=True)
-                st.plotly_chart(charts.allocation_donut(items), use_container_width=True,
-                                config={"displayModeBar": False}, key=f"cand_compo_donut_{idx}")
+                with st.container(key=f"donutcard_cand{idx}"):
+                    st.plotly_chart(charts.allocation_donut(items), use_container_width=True,
+                                    config={"displayModeBar": False}, key=f"cand_compo_donut_{idx}")
                 st.markdown(_candidate_composition_html(items), unsafe_allow_html=True)
 
     # ANÁLISIS COMPLETO de cada portafolio (mismas pestañas que el modo de 1 portafolio).

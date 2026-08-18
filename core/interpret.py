@@ -5,6 +5,8 @@ Nunca recomienda comprar/vender un activo: solo describe escenarios.
 """
 from __future__ import annotations
 
+from core import textgen as _tg
+
 
 def _money(x: float | None) -> str:
     return "—" if x is None else f"${x:,.0f}"
@@ -20,45 +22,84 @@ def interpret_locally(result: dict, inputs: dict, stress: dict | None = None) ->
     flow = inputs.get("monthly_contribution", 0.0)
     lines: list[str] = []
 
+    def _v(idx, *ops):
+        """Variante determinista por hueco: el mismo plan se lee igual siempre; dos planes
+        distintos no se leen calcados."""
+        return _tg.variant(_tg.seed_key(inputs), idx, *ops)
+
     if flow < 0:  # modo retiro
         ruin = result["probability_of_ruin"]
         verdict = "preocupante" if ruin >= 0.20 else "moderado" if ruin >= 0.05 else "bajo"
         lines.append(
-            f"En **modo retiro** (retiras {_money(-flow)}/mes), tu capital se agotó antes "
+            f"En **modo retiro** (retiras {_money(-flow)} al mes), tu capital se agotó antes "
             f"de los {years} años en **{ruin*100:.0f}%** de los 10.000 escenarios — un riesgo "
             f"de ruina **{verdict}**. El escenario mediano dejó {_money(p50)} al final del horizonte.")
         if ruin >= 0.05:
-            lines.append("Para bajar el riesgo de ruina puedes reducir el retiro mensual, "
-                         "acortar el horizonte o sumar activos más estables.")
+            lines.append(_v(1,
+                "Para bajar ese riesgo puedes reducir el retiro mensual, acortar el horizonte "
+                "o sumar activos más estables.",
+                "Hay tres palancas para mejorarlo: sacar menos cada mes, contar con menos años "
+                "por delante o dar más peso a lo que se mueve poco.",
+                "Se corrige por tres vías: un retiro más pequeño, un horizonte más corto o una "
+                "mezcla algo más tranquila."))
     else:  # acumulación
         spread = (p95 / p5) if p5 > 0 else float("inf")
-        lines.append(
+        lines.append(_v(2,
             f"A {years} años, el escenario **mediano** proyecta {_money(p50)}: la mitad de los "
-            f"futuros simulados terminó por encima y la mitad por debajo.")
-        lines.append(
+            f"futuros simulados terminó por encima y la mitad por debajo.",
+            f"El punto central de la simulación a {years} años queda en {_money(p50)}, con la "
+            f"mitad de los futuros por encima y la otra mitad por debajo.",
+            f"Puesto en una sola cifra, {years} años de plan apuntan a {_money(p50)}: es el "
+            f"resultado que deja tantos escenarios mejores como peores."))
+        lines.append(_v(3,
             f"Entre el escenario **pesimista** ({_money(p5)}, si va mal) y el **optimista** "
-            f"({_money(p95)}, si va bien) hay ~{spread:.0f} veces de diferencia. Esa amplitud es "
-            f"esperable: la incertidumbre a 20 años es enorme y conviene planificar con el rango, "
-            f"no con un solo número.")
+            f"({_money(p95)}, si va bien) hay cerca de {spread:.0f} veces de diferencia. Esa "
+            f"amplitud es esperable: a {years} años la incertidumbre es enorme y conviene "
+            f"planificar con el rango, no con un solo número.",
+            f"El abanico va desde {_money(p5)} en el escenario **pesimista** hasta "
+            f"{_money(p95)} en el **optimista**: unas {spread:.0f} veces de distancia entre uno "
+            f"y otro. Con {years} años por delante esa horquilla es normal, y planificar con "
+            f"ella es más honesto que fiarse de un número único.",
+            f"Lo **pesimista** ({_money(p5)}) y lo **optimista** ({_money(p95)}) están separados "
+            f"por unas {spread:.0f} veces. No es un fallo del modelo: es lo que da de sí la "
+            f"incertidumbre a {years} años, y por eso conviene razonar en rangos."))
 
     if inputs.get("target"):
         prob = result.get("prob_target") or 0.0
         verdict = "alta" if prob >= 0.70 else "moderada" if prob >= 0.50 else "baja"
-        lines.append(
+        lines.append(_v(4,
             f"Tu meta de {_money(inputs['target'])} se alcanzó en **{prob*100:.0f}%** de los "
-            f"escenarios — probabilidad {verdict}.")
+            f"escenarios — una probabilidad {verdict}.",
+            f"Llegar a {_money(inputs['target'])} ocurrió en **{prob*100:.0f}%** de los futuros "
+            f"simulados: probabilidad {verdict}.",
+            f"De todos los caminos posibles, **{prob*100:.0f}%** alcanzan tu meta de "
+            f"{_money(inputs['target'])}. Es una probabilidad {verdict}."))
         if prob < 0.50:
-            lines.append("Para mejorar la probabilidad de meta puedes subir el aporte mensual, "
-                         "extender el horizonte o revisar la composición del portafolio.")
+            lines.append(_v(5,
+                "Para mejorar esa probabilidad puedes subir el aporte mensual, extender el "
+                "horizonte o revisar la composición del portafolio.",
+                "Tres palancas la mueven: aportar algo más cada mes, darle más años o cambiar "
+                "la mezcla de activos.",
+                "Se puede empujar al alza aumentando el aporte, ganando tiempo o ajustando qué "
+                "hay dentro de la cartera."))
 
     dd = result.get("max_drawdown_typical", 0.0)
-    lines.append(
+    lines.append(_v(6,
         f"Habrá baches en el camino: la **caída típica** (cuánto baja en un mal momento) fue "
-        f"~{dd*100:.0f}%. Soportarla sin vender en pánico es parte del plan a largo plazo.")
+        f"alrededor de un {dd*100:.0f}%. Soportarla sin vender en pánico es parte del plan.",
+        f"El trayecto no será recto: en los malos momentos la cartera cedió alrededor de un "
+        f"**{dd*100:.0f}%**. Aguantar ahí sin vender es, literalmente, parte del trabajo.",
+        f"Cuenta con retrocesos: la **caída típica** rondó el **{dd*100:.0f}%**. Quien la "
+        f"soporta sin tocar nada es quien acaba cobrando el rendimiento de largo plazo."))
 
     if inputs.get("distribution") == "t-student":
-        lines.append("Usaste un modelo que toma en cuenta **caídas bruscas** más seguido, "
-                     "para ver escenarios de corto/mediano plazo más realistas.")
+        lines.append(_v(7,
+            "Usaste un modelo que contempla **caídas bruscas** con más frecuencia, para que los "
+            "escenarios de corto y medio plazo salgan más realistas.",
+            "El modelo elegido reserva más sitio a los **sustos fuertes**, que es lo que ocurre "
+            "de verdad en los plazos cortos y medios.",
+            "Al usar un modelo con **colas gruesas**, los episodios extremos aparecen tan a "
+            "menudo como en la realidad, y no menos."))
 
     fees, tax = inputs.get("annual_fees_pct", 0.0), inputs.get("annual_tax_on_gains_pct", 0.0)
     if fees or tax:
@@ -70,12 +111,18 @@ def interpret_locally(result: dict, inputs: dict, stress: dict | None = None) ->
         worst = max(stress["events"], key=lambda e: e["portfolio_drawdown"])
         lines.append(
             f"**Prueba de crisis**: un evento como *{worst['name']}* implicaría para tu portafolio una "
-            f"caída estimada de ~{worst['portfolio_drawdown']*100:.0f}% (según cuánto se mueve tu "
+            f"caída estimada de alrededor de un {worst['portfolio_drawdown']*100:.0f}% (según cuánto se mueve tu "
             f"portafolio frente al mercado). Es una estimación de magnitud, no una predicción.")
 
-    lines.append(
+    lines.append(_v(8,
         "_Recuerda: esto proyecta escenarios estadísticos basados en retornos históricos. "
-        "No es predicción ni recomendación. Los retornos reales pueden diferir significativamente._")
+        "No es predicción ni recomendación. Los retornos reales pueden diferir "
+        "significativamente._",
+        "_Ten presente que son escenarios estadísticos calculados sobre el comportamiento "
+        "histórico. Ni predicen el futuro ni son una recomendación: lo que ocurra de verdad "
+        "puede alejarse bastante._",
+        "_Conviene recordarlo: todo esto sale de simular el pasado muchas veces. No es una "
+        "predicción ni un consejo de inversión, y la realidad puede diferir de forma notable._"))
     return "\n\n".join(lines)
 
 
@@ -88,6 +135,9 @@ def interpret_goal(result: dict, inputs: dict) -> str:
     years = inputs["horizon_years"]
     target = inputs.get("target")
     retirement = inputs.get("monthly_contribution", 0.0) < 0
+
+    def _v(idx, *ops):
+        return _tg.variant(_tg.seed_key(inputs), idx, *ops)
 
     if retirement:
         ruin = result.get("probability_of_ruin", 0.0)
@@ -107,15 +157,39 @@ def interpret_goal(result: dict, inputs: dict) -> str:
         lever = ("Si quieres subir esa probabilidad, el aporte mensual y el horizonte son las dos palancas "
                  "que más la mueven." if prob < 0.70 else
                  "Mantén el rumbo: el hábito de aportar constante es lo que sostiene esa probabilidad.")
-        return (f"Tu meta de **{_money(target)}** a {years} años se alcanzó en el **{prob*100:.0f}%** de los 10.000 "
-                f"escenarios — una meta {verdict}. En el gráfico, tu objetivo queda {where}. {lever} No es una "
-                f"garantía: los retornos reales pueden diferir de lo simulado.")
+        cierre = _v(11,
+            "No es una garantía: los retornos reales pueden diferir de lo simulado.",
+            "Conviene leerlo como una probabilidad, no como una promesa: la realidad puede "
+            "separarse de la simulación.",
+            "Nada de esto está asegurado; es la mejor estimación posible, no una certeza.")
+        return _v(12,
+            f"Tu meta de **{_money(target)}** a {years} años se alcanzó en el "
+            f"**{prob*100:.0f}%** de los 10.000 escenarios — una meta {verdict}. En el gráfico, "
+            f"tu objetivo queda {where}. {lever} {cierre}",
+            f"De los 10.000 futuros simulados, **{prob*100:.0f}%** llegan a tus "
+            f"**{_money(target)}** en {years} años: una meta {verdict}. Sobre el gráfico, ese "
+            f"objetivo cae {where}. {lever} {cierre}",
+            f"Llegar a **{_money(target)}** en {years} años ocurrió en **{prob*100:.0f}%** de "
+            f"los escenarios, lo que la convierte en una meta {verdict}. Mirando el gráfico, "
+            f"tu objetivo queda {where}. {lever} {cierre}")
 
     spread = (p95 / p5) if p5 > 0 else float("inf")
-    return (f"Aún no fijaste una meta, así que aquí ves el **abanico completo** de resultados posibles a {years} años. "
-            f"La mayoría de los futuros se agrupan alrededor de {_money(p50)}, pero el rango es amplio: desde ~{_money(p5)} "
-            f"si el mercado acompaña poco hasta ~{_money(p95)} si acompaña mucho — unas {spread:.0f} veces de diferencia "
-            f"entre un extremo y otro. Si escribes una meta en 'Tu plan', te diré en qué porcentaje de escenarios se logra.")
+    return _v(13,
+        f"Aún no fijaste una meta, así que aquí ves el **abanico completo** de resultados "
+        f"posibles a {years} años. La mayoría de los futuros se agrupan alrededor de "
+        f"{_money(p50)}, pero el rango es amplio: desde cerca de {_money(p5)} si el mercado "
+        f"acompaña poco hasta {_money(p95)} si acompaña mucho — unas {spread:.0f} veces de "
+        f"diferencia entre un extremo y otro. Si escribes una meta en 'Tu plan', te diré en qué "
+        f"porcentaje de escenarios se logra.",
+        f"Sin meta fijada, lo que se ve aquí es el **abanico entero** de finales posibles a "
+        f"{years} años. El grueso se concentra cerca de {_money(p50)}, aunque los extremos "
+        f"están lejos: {_money(p5)} si el mercado apenas acompaña y {_money(p95)} si acompaña "
+        f"mucho, unas {spread:.0f} veces de distancia. Escribe un objetivo en 'Tu plan' y te "
+        f"digo en cuántos escenarios se cumple.",
+        f"Como no hay meta, esta vista muestra **todo el abanico** de desenlaces a {years} "
+        f"años. El centro de gravedad está en {_money(p50)}; los bordes, en {_money(p5)} y "
+        f"{_money(p95)} — unas {spread:.0f} veces de diferencia entre lo malo y lo bueno. "
+        f"Si defines una meta en 'Tu plan', calculo en qué porcentaje de futuros se alcanza.")
 
 
 def interpret_risks(result: dict, inputs: dict, analysis: dict | None = None) -> str:
@@ -128,11 +202,22 @@ def interpret_risks(result: dict, inputs: dict, analysis: dict | None = None) ->
     p50 = float(np.percentile(result["final_values"], 50))
     after = p50 * (1.0 - dd)
 
-    parts = [
-        f"El riesgo más real de este portafolio no es 'perderlo todo', sino **aguantar las caídas del camino**: "
-        f"en un mal momento suele retroceder ~**{dd*100:.0f}%**, lo que se sentiría como ver tu inversión bajar de "
-        f"~{_money(p50)} a ~{_money(after)}. Quien vende ahí convierte una caída temporal en una pérdida definitiva."
-    ]
+    def _v(idx, *ops):
+        return _tg.variant(_tg.seed_key(inputs), idx, *ops)
+
+    parts = [_v(21,
+        f"El riesgo más real de este portafolio no es 'perderlo todo', sino **aguantar las "
+        f"caídas del camino**: en un mal momento suele retroceder alrededor de un "
+        f"**{dd*100:.0f}%**, lo que se sentiría como ver tu inversión bajar de {_money(p50)} a "
+        f"{_money(after)}. Quien vende ahí convierte una caída temporal en una pérdida definitiva.",
+        f"Aquí el peligro no es la ruina, es **el trayecto**: en las malas rachas esta cartera "
+        f"cede alrededor de un **{dd*100:.0f}%**, que en tu caso sería ver {_money(p50)} "
+        f"convertidos en {_money(after)}. Esa caída solo se vuelve pérdida de verdad si vendes "
+        f"mientras dura.",
+        f"El riesgo que de verdad importa no es perderlo todo, sino **sostener el bache**: la "
+        f"cartera suele retroceder alrededor de un **{dd*100:.0f}%** en los malos momentos "
+        f"— {_money(p50)} pasando a {_money(after)}. En pantalla es temporal; al vender se "
+        f"vuelve definitiva.")]
     if retirement:
         ruin = result.get("probability_of_ruin", 0.0)
         parts.append(f"Y como estás retirando, pesa el riesgo de secuencia: en el {ruin*100:.0f}% de los escenarios el "
@@ -143,13 +228,13 @@ def interpret_risks(result: dict, inputs: dict, analysis: dict | None = None) ->
         vol = s.get("ann_vol")
         bits = []
         if vol is not None:
-            bits.append(f"una volatilidad anual de ±{vol*100:.0f}%")
+            bits.append(f"una volatilidad anual que sube y baja alrededor de un {vol*100:.0f}%")
         if mw is not None and mw >= 0.30:
             bits.append(f"una concentración alta ({mw*100:.0f}% en {sym})")
         if corr is not None and corr >= 0.70:
             bits.append(f"activos que se mueven muy juntos (correlación media {corr:.2f})")
         if bits:
-            parts.append("Lo que más suma a ese riesgo es " + ", ".join(bits) + ".")
+            parts.append("Lo que más suma a ese riesgo es " + _tg.natural_join(bits) + ".")
     parts.append("Nada de esto predice el futuro: es la forma de la incertidumbre, para que planifiques con la cabeza "
                  "fría y no con miedo.")
     return " ".join(parts)
@@ -163,16 +248,12 @@ def interpret_risks(result: dict, inputs: dict, analysis: dict | None = None) ->
 # estable entre reruns (no cambia al navegar) pero distinto entre portafolios.
 
 def _seeded(inputs_or_key, salt: str):
-    import random as _rnd
-    if isinstance(inputs_or_key, dict):
-        key = f"{inputs_or_key.get('tickers')}|{inputs_or_key.get('weights')}|{inputs_or_key.get('horizon_years')}"
-    else:
-        key = str(inputs_or_key)
-    return _rnd.Random(f"{key}|{salt}")
+    """Delegado en `core.textgen` para que haya UN solo motor de redacción."""
+    return _tg.seeded(inputs_or_key, salt)
 
 
 def _compose(rng, *pools) -> str:
-    return " ".join(rng.choice(p) for p in pools if p)
+    return _tg.es_natural(_tg.compose(rng, *pools))
 
 
 def interpret_diversification(structure: dict) -> str:
@@ -233,7 +314,7 @@ def interpret_diversification(structure: dict) -> str:
             "Diversificaste en apariencia, no en comportamiento: tus activos comparten destino.",
             "El conjunto se mueve casi como una sola pieza ante las mismas noticias.",
         ], [
-            f"Por eso tus {n} posiciones rinden como ~{bets:.0f} apuestas reales frente a un mal año.",
+            f"Por eso tus {n} posiciones rinden como unas {bets:.0f} apuestas reales frente a un mal año.",
             "Cuando llega un mal año, no hay nada que sostenga al resto.",
             "Añadir otro activo del mismo tipo no cambiaría este diagnóstico.",
         ], [
@@ -363,23 +444,23 @@ def pdf_conclusion(result: dict, inputs: dict, benchmarks: list | None = None) -
     open_p = [
         f"Después de simular 10.000 futuros posibles, el mensaje central es este: a {years} años tu plan apunta a {_money(p50)} en el escenario típico, con un rango razonable entre {_money(p5)} y {_money(p95)}.",
         f"Si hubiera que resumir todo el análisis en una frase: lo más probable es terminar cerca de {_money(p50)} a {years} años, sabiendo que el abanico realista va de {_money(p5)} a {_money(p95)}.",
-        f"El veredicto de los 10.000 escenarios es claro: tu punto central a {years} años es {_money(p50)}, y planificar con el rango {_money(p5)}–{_money(p95)} es más honesto que aferrarse a un solo número.",
+        f"El veredicto de los 10.000 escenarios es claro: tu punto central a {years} años es {_money(p50)}, y planificar con el rango que va de {_money(p5)} a {_money(p95)} es más honesto que aferrarse a un solo número.",
     ]
     risk_p = [
         f"El precio del boleto será la volatilidad: en algún momento verás la cuenta caer alrededor de {dd*100:.0f}% desde su máximo, y ese día tu mejor herramienta no será el análisis sino la calma.",
-        f"Prepárate para el peaje del camino: caídas típicas de ~{dd*100:.0f}% son parte del plan, no una falla del plan — quien lo sabe de antemano no vende en el peor momento.",
-        f"Habrá baches de ~{dd*100:.0f}% en el trayecto; la diferencia entre un buen y un mal resultado casi nunca está en elegir mejor, sino en no abandonar en mitad de la tormenta.",
+        f"Prepárate para el peaje del camino: caídas típicas de alrededor de un {dd*100:.0f}% son parte del plan, no una falla del plan — quien lo sabe de antemano no vende en el peor momento.",
+        f"Habrá baches cercanos al {dd*100:.0f}% en el trayecto; la diferencia entre un buen y un mal resultado casi nunca está en elegir mejor, sino en no abandonar en mitad de la tormenta.",
     ]
     if o.get("median_real"):
         real_p = [
-            f"En poder de compra de hoy, esa mediana equivale a ~{_money(o['median_real'])}: el número que de verdad importa cuando pienses en qué podrás hacer con el dinero.",
-            f"Ajustado por inflación, hablamos de ~{_money(o['median_real'])} en dinero de hoy — la medida honesta de tu meta.",
+            f"En poder de compra de hoy, esa mediana equivale a cerca de {_money(o['median_real'])}: el número que de verdad importa cuando pienses en qué podrás hacer con el dinero.",
+            f"Ajustado por inflación, hablamos de alrededor de {_money(o['median_real'])} en dinero de hoy — la medida honesta de tu meta.",
         ]
     else:
         real_p = []
     if s.get("wavg_corr") is not None and s.get("n_assets", 1) >= 2:
         struct_p = [
-            f"Estructuralmente, tus {s['n_assets']} activos equivalen a ~{s.get('eff_bets', 0):.1f} apuestas independientes (correlación media {s['wavg_corr']:.2f}); ahí está la palanca más barata para mejorar el plan.",
+            f"Estructuralmente, tus {s['n_assets']} activos equivalen a unas {s.get('eff_bets', 0):.1f} apuestas independientes (correlación media {s['wavg_corr']:.2f}); ahí está la palanca más barata para mejorar el plan.",
             f"La estructura cuenta su propia historia: correlación media de {s['wavg_corr']:.2f} y {s.get('max_weight', 0)*100:.0f}% en tu mayor posición — vigilar esos dos números vale más que perseguir el próximo activo de moda.",
         ]
     else:

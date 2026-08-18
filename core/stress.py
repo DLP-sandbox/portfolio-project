@@ -20,7 +20,7 @@ HISTORICAL_EVENTS = [
     {"key": "2000", "name": "Burbuja .com", "equity_drawdown": 0.49, "recovery_months": 86,
      "desc": "Estallido de las puntocom (2000-2002)."},
     {"key": "2008", "name": "Crisis financiera 2008", "equity_drawdown": 0.57, "recovery_months": 49,
-     "desc": "Gran Recesión / colapso subprime (2007-2009)."},
+     "desc": "Gran Recesión y colapso subprime (2007-2009)."},
     {"key": "2020", "name": "Crash COVID 2020", "equity_drawdown": 0.34, "recovery_months": 5,
      "desc": "Caída relámpago por la pandemia; recuperación inusualmente rápida."},
 ]

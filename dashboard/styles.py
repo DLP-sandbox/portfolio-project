@@ -848,6 +848,44 @@ def inject_css() -> None:
             background:{METAL_BG} !important; border-color:{GOLD_HOVER} !important;
             color:{ORANGE} !important; box-shadow:0 -3px 16px rgba(var(--accent-rgb),.12); }}
 
+        /* ── Selector de PORTAFOLIO ──────────────────────────────────────────
+           Por dentro es un st.radio (st.tabs no guarda estado y volvía siempre al primer
+           portafolio); por fuera se dibuja EXACTAMENTE como las pestañas de arriba. */
+        div[class*="st-key-pfhide_"] {{ display:none !important; }}
+        div[class*="st-key-pftabs_"] {{ margin:0 0 2px !important; }}
+        div[class*="st-key-pftabs_"] [role="radiogroup"] {{
+            display:flex !important; flex-wrap:wrap; gap:6px; align-items:flex-end;
+            border-bottom:1px solid {BORDER}; margin:0 !important; padding:0 !important; }}
+        div[class*="st-key-pftabs_"] [role="radiogroup"] label {{
+            margin:0 !important; padding:9px 18px !important; position:relative; bottom:-1px;
+            background:{BG_CARD} !important; border:1px solid {BORDER} !important;
+            border-bottom:none !important; border-radius:10px 10px 0 0 !important;
+            display:flex !important; align-items:center; white-space:nowrap !important;
+            cursor:pointer;
+            transition: background var(--dur-2) var(--dlp-ease-out),
+                        border-color var(--dur-2) var(--dlp-ease-out),
+                        box-shadow var(--dur-2) var(--dlp-ease-out); }}
+        /* El radio NATIVO se oculta de verdad (todas las variantes del DOM de BaseWeb) */
+        div[class*="st-key-pftabs_"] [role="radiogroup"] label > div:first-child,
+        div[class*="st-key-pftabs_"] [role="radiogroup"] label > span:first-child {{
+            display:none !important; }}
+        div[class*="st-key-pftabs_"] [role="radiogroup"] label input[type="radio"] {{
+            appearance:none !important; -webkit-appearance:none !important;
+            position:absolute !important; opacity:0 !important;
+            width:0 !important; height:0 !important; margin:0 !important; padding:0 !important;
+            border:0 !important; background:none !important; pointer-events:none !important; }}
+        div[class*="st-key-pftabs_"] [role="radiogroup"] label p {{
+            font-family:{MONO} !important; text-transform:uppercase; letter-spacing:.06em;
+            font-size:13px !important; font-weight:700 !important;
+            color:{TEXT_DIM} !important; margin:0 !important; white-space:nowrap !important;
+            transition: color var(--dur-2) var(--dlp-ease-out); }}
+        div[class*="st-key-pftabs_"] [role="radiogroup"] label:hover p {{ color:{TEXT_MD} !important; }}
+        div[class*="st-key-pftabs_"] [role="radiogroup"] label:has(input:checked) {{
+            background:{METAL_BG} !important; border-color:{GOLD_HOVER} !important;
+            box-shadow:0 -3px 16px rgba(var(--accent-rgb),.12) !important; }}
+        div[class*="st-key-pftabs_"] [role="radiogroup"] label:has(input:checked) p {{
+            color:{ORANGE} !important; }}
+
         /* ── Barra de secciones (Resumen/Análisis/…): CENTRADA, estilo pestañas premium ── */
         /* Centrado robusto: el stRadio y sus wrappers ocupan el 100% del ancho, así que
            se centra el CONTENIDO en cada nivel de la cadena (no el contenedor). */

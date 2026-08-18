@@ -22,7 +22,7 @@ import numpy as np  # noqa: E402
 import streamlit as st  # noqa: E402
 from streamlit_searchbox import st_searchbox  # noqa: E402  (buscador en vivo de tickers)
 
-from core import insights, interpret, portfolio_import, presets, rating, sequence, stress  # noqa: E402
+from core import insights, textgen, interpret, portfolio_import, presets, rating, sequence, stress  # noqa: E402
 from core.montecarlo import run_montecarlo  # noqa: E402
 from dashboard import charts, components  # noqa: E402
 from dashboard import styles as S  # noqa: E402
@@ -234,6 +234,43 @@ def _active_pids() -> list[str]:
 def _pname(pid: str) -> str:
     """Nombre visible del portafolio: el del archivo si lo hay, si no 'Portafolio N'."""
     return (st.session_state.get("portfolio_names", {}) or {}).get(pid) or PLABEL.get(pid, pid)
+
+
+def _touch_detail(kp: str) -> None:
+    """Mantiene abierto el desplegable de detalle cuando se navega DENTRO de él."""
+    if kp in ("dA", "dB"):
+        st.session_state["cmp_detail_open"] = True
+
+
+def _pf_tabs(key: str, labels: list[str], on_change=None, args=()) -> int:
+    """Selector de portafolio CON MEMORIA, con el aspecto de las pestañas de siempre.
+
+    `st.tabs` es layout puro: no acepta `key`, nunca escribe en `session_state` y vuelve al
+    índice 0 en cada rerun. Por eso, al pulsar cualquier otro widget (cambiar de sección,
+    editar un monto) la vista saltaba de vuelta al primer portafolio. Un `st.radio` keyed sí
+    recuerda; el CSS de `pftabs_` lo dibuja exactamente como las pestañas.
+
+    Guardamos el ÍNDICE, no la etiqueta, para que dos portafolios con el mismo nombre no se
+    pisen. Devuelve el índice activo, ya saneado.
+    """
+    n = len(labels)
+    if n == 0:
+        return 0
+    cur = st.session_state.get(key)
+    if not isinstance(cur, int) or not (0 <= cur < n):
+        st.session_state[key] = 0  # el recordado ya no existe (se quitó un portafolio, etc.)
+    with st.container(key=f"pftabs_{key}"):
+        st.radio("Portafolio", list(range(n)), key=key, format_func=lambda i: labels[i],
+                 horizontal=True, label_visibility="collapsed",
+                 on_change=on_change, args=args)
+    cur = st.session_state.get(key)
+    return cur if isinstance(cur, int) and 0 <= cur < n else 0
+
+
+def _pf_pane(active: bool, name: str):
+    """Panel de una pestaña. Se renderizan TODOS (igual que hacía `st.tabs`) y solo se
+    muestra el activo: así los widgets de los portafolios ocultos conservan su estado."""
+    return st.container(key=f"{'pfpane' if active else 'pfhide'}_{name}")
 
 
 def _free_pid() -> str | None:
@@ -522,9 +559,9 @@ def render_inputs() -> dict | None:
         else:
             components.card_head("◆", f"Compara {len(pids)} portafolios",
                                  "Edítalos; se analizan todos")
-            tabs = st.tabs([f"  {_pname(p)}  " for p in pids])
-            for tab, pid in zip(tabs, pids):
-                with tab:
+            _sel = _pf_tabs("pfsel_build", [f"  {_pname(p)}  " for p in pids])
+            for _i, pid in enumerate(pids):
+                with _pf_pane(_i == _sel, f"build_{pid}"):
                     if st.button("✕  Quitar este portafolio", key=f"rm_pf_{pid}"):
                         st.session_state.portfolios.pop(pid, None)
                         st.session_state.get("portfolio_names", {}).pop(pid, None)
@@ -567,14 +604,14 @@ def render_inputs() -> dict | None:
     with uc2, st.expander("Opciones avanzadas"):
         dist_label = st.radio("Modelo de retornos", ["Normal", "t-Student (colas gordas)"],
                               horizontal=True,
-                              help="t-Student suma realismo a caídas y extremos de corto/mediano plazo; "
+                              help="t-Student suma realismo a caídas y extremos de corto y medio plazo; "
                                    "sobre 20 años i.i.d. el efecto en el patrimonio final es modesto.")
         fc1, fc2 = st.columns(2)
         fees = fc1.number_input(
             "Fees anuales (%)", min_value=0, max_value=5, value=0, step=1, format="%d",
             help="Costo anual del fondo o portafolio (comisiones + gastos). Reduce tu rendimiento.")
         tax = fc2.number_input(
-            "Impuesto anual s/ ganancias (%)", min_value=0, max_value=50, value=0, step=1, format="%d",
+            "Impuesto anual sobre ganancias (%)", min_value=0, max_value=50, value=0, step=1, format="%d",
             help="Impuesto que pagas cada año sobre las ganancias. Aproxima una cuenta gravable.")
         st.divider()
         retirement = st.checkbox(
@@ -752,7 +789,7 @@ def render_analysis_panel(result, inputs, kp) -> None:
                 ratio = (o["median_real"] / inv) if inv > 0 else 1.0
                 components.kpi_tile("En dinero de hoy", components.fmt_money(o["median_real"]), S.BLUE,
                                     "mediana real (infl. 3%)",
-                                    help="Tu mediana ajustada por inflación (3%/año): lo que realmente "
+                                    help="Tu mediana ajustada por inflación (3% al año): lo que realmente "
                                          "podrás comprar. El número grande a futuro engaña.",
                                     rating=rating.rating(max(0.0, min(1.0, (ratio - 1.0) / 2.0))))
             with m2[2]:
@@ -917,7 +954,8 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
     if st.session_state.get(sect_key) not in sections:
         st.session_state[sect_key] = sections[0]
     with st.container(key=f"sectbar_{kp}"):
-        st.radio("Sección", sections, key=sect_key, horizontal=True, label_visibility="collapsed")
+        st.radio("Sección", sections, key=sect_key, horizontal=True,
+                 label_visibility="collapsed", on_change=_touch_detail, args=(kp,))
     sect = st.session_state.get(sect_key) or sections[0]
 
     if sect == "Resumen":
@@ -1013,7 +1051,7 @@ def render_single(result, inputs, extras, benchmarks, kp, *, with_hero=True, wit
                                           sub=f"escenarios donde el capital se agota antes de {years} años",
                                           ends=("frágil", "sólido"))
                 with t:
-                    _lectura_card(col, f"Retirando {components.fmt_money(abs(inputs['monthly_contribution']))}/mes, "
+                    _lectura_card(col, f"Retirando {components.fmt_money(abs(inputs['monthly_contribution']))} al mes, "
                                   f"tu capital se agotó antes de los {years} años en "
                                   f"<b style='color:{col}'>{ruin*100:.0f}%</b> de los escenarios.")
         elif inputs["target"]:
@@ -1113,22 +1151,53 @@ def _compare_verdict(rA, iA, rB) -> tuple[str, str]:
     m_high, m_low = (medA, medB) if high == "A" else (medB, medA)
     dd_low_val = min(ddA, ddB)
     dd_high_val = max(ddA, ddB)
-    parts = [f"En la mediana, el {_b(_pname(high), hcol)} proyecta más "
-             f"({components.fmt_money(m_high)} vs {components.fmt_money(m_low)})."]
+    # Redacción con variantes deterministas: el mismo par de portafolios se lee siempre
+    # igual, pero dos comparaciones distintas no suenan calcadas.
+    def _v(idx, *ops):
+        return textgen.variant(textgen.seed_key(iA), idx, *ops)
+
+    hi = _b(_pname(high), hcol)
+    mh, ml = components.fmt_money(m_high), components.fmt_money(m_low)
+    parts = [_v(1,
+                f"En la mediana, el {hi} proyecta más: {mh} frente a {ml}.",
+                f"El {hi} apunta más alto en el escenario central, {mh} contra {ml}.",
+                f"Mirando el punto medio de cada uno, el {hi} llega a {mh} y el otro se queda en {ml}.")]
     if low_dd == high:
-        parts.append(f"Y además es el más estable (caída típica {dd_low_val:.0f}% vs {dd_high_val:.0f}%): "
-                     f"luce mejor en crecimiento y en estabilidad — aunque no es garantía.")
+        parts.append(_v(2,
+            f"Y además aguanta mejor los malos tramos (cae {dd_low_val:.0f}% donde el otro cae "
+            f"{dd_high_val:.0f}%): gana en crecimiento y en calma a la vez, aunque nada de esto "
+            f"es una garantía.",
+            f"También es el más tranquilo de los dos, con caídas típicas del {dd_low_val:.0f}% "
+            f"frente al {dd_high_val:.0f}%. Que destaque en ambas cosas es poco común, pero "
+            f"tampoco asegura el resultado.",
+            f"Suma que su peor tramo habitual es más suave ({dd_low_val:.0f}% contra "
+            f"{dd_high_val:.0f}%): mejor recorrido y mejor destino, sin que eso sea una promesa."))
         lead = hcol
     else:
-        parts.append(f"Pero el {_b(_pname(low_dd), lcol)} es más estable (caída típica menor: "
-                     f"{dd_low_val:.0f}% vs {dd_high_val:.0f}%). Es un trade-off entre crecimiento y "
-                     f"estabilidad: depende de tu tolerancia al riesgo.")
+        lo = _b(_pname(low_dd), lcol)
+        parts.append(_v(3,
+            f"Ahora bien, el {lo} tiene un camino más llevadero: cae {dd_low_val:.0f}% en sus "
+            f"malos momentos, frente al {dd_high_val:.0f}% del otro. Aquí hay que elegir entre "
+            f"crecer más y dormir mejor, y la respuesta depende de cuánto vaivén aguantas sin "
+            f"cambiar de plan.",
+            f"Pero el {lo} se mueve menos: sus caídas típicas son del {dd_low_val:.0f}% y las del "
+            f"otro del {dd_high_val:.0f}%. Uno promete más y el otro molesta menos; lo que decide "
+            f"no es la cifra, es cuál de los dos podrías sostener durante años.",
+            f"El {lo}, en cambio, ofrece un trayecto más suave ({dd_low_val:.0f}% de caída típica "
+            f"contra {dd_high_val:.0f}%). No hay respuesta única: el mejor es el que puedas "
+            f"mantener sin abandonarlo en el peor momento."))
         lead = S.GOLD
     if iA.get("target"):
         pA, pB = (rA["prob_target"] or 0) * 100, (rB["prob_target"] or 0) * 100
         bp, bpcol = ("A", PCOLOR["A"]) if pA >= pB else ("B", PCOLOR["B"])
-        parts.append(f"Para tu meta, el {_b(_pname(bp), bpcol)} tiene mayor probabilidad de alcanzarla "
-                     f"({max(pA, pB):.0f}% vs {min(pA, pB):.0f}%).")
+        bn, hp, lp = _b(_pname(bp), bpcol), max(pA, pB), min(pA, pB)
+        parts.append(_v(4,
+            f"Para tu meta concreta, el {bn} la alcanza en {hp:.0f} de cada 100 escenarios, "
+            f"frente a {lp:.0f} del otro.",
+            f"Si lo que manda es llegar a tu meta, el {bn} lo consigue el {hp:.0f}% de las veces "
+            f"y el otro el {lp:.0f}%.",
+            f"Puesto en términos de tu objetivo, el {bn} llega en el {hp:.0f}% de los futuros "
+            f"simulados, por el {lp:.0f}% del otro."))
     return " ".join(parts), lead
 
 
@@ -1237,11 +1306,15 @@ def render_compare(rA, iA, exA, rB, iB, exB, benchmarks, elapsed=None) -> None:
         st.plotly_chart(charts.comparison_fan_chart(scen, rA["months"], iA["target"]),
                         use_container_width=True, config={"displayModeBar": False}, key="cmp_fan")
 
-    with st.expander("Ver detalle de cada portafolio"):
-        dtA, dtB = st.tabs(["🟠  Detalle A", "🔵  Detalle B"])
-        with dtA:
+    # El desplegable no llevaba `expanded=`, así que se colapsaba en cada rerun; y las
+    # pestañas volvían a "Detalle A". Ahora ambas cosas recuerdan dónde estabas.
+    with st.expander("Ver detalle de cada portafolio",
+                     expanded=bool(st.session_state.get("cmp_detail_open"))):
+        _sel = _pf_tabs("pfsel_cmp", ["🟠  Detalle A", "🔵  Detalle B"],
+                        on_change=_touch_detail, args=("dA",))
+        with _pf_pane(_sel == 0, "cmp_A"):
             render_single(rA, iA, exA, benchmarks, "dA", with_hero=False, with_actions=False)
-        with dtB:
+        with _pf_pane(_sel == 1, "cmp_B"):
             render_single(rB, iB, exB, benchmarks, "dB", with_hero=False, with_actions=False)
 
     _render_pdf_button(rA, iA, benchmarks)
@@ -1371,19 +1444,46 @@ def render_multi(runs: list[dict], benchmarks=None, elapsed=None) -> None:
         _ctl, _ctr = st.columns([1, 1.55], gap="medium")
     with _ctl, components.card("cand-verdict"):
         components.card_head("◆", "El mejor portafolio", "según la proyección")
-        v = (f"El portafolio {_b(best['name'], S.ORANGE)} proyecta la mayor mediana a "
-             f"{_b(str(years) + ' años')}: {_b(components.fmt_money(best['p50']), S.ORANGE)}. ")
+        def _v(idx, *ops):
+            return textgen.variant("|".join(r["name"] for r in rows) + f"|{years}", idx, *ops)
+
+        bn, bm = _b(best["name"], S.ORANGE), _b(components.fmt_money(best["p50"]), S.ORANGE)
+        v = _v(1,
+               f"El portafolio {bn} proyecta la mayor mediana a {_b(str(years) + ' años')}: {bm}. ",
+               f"A {_b(str(years) + ' años')}, el que más lejos llega en el escenario central es "
+               f"{bn}, con {bm}. ",
+               f"De los tres, {bn} es el que apunta más alto a {_b(str(years) + ' años')}: {bm}. ")
         if safest["name"] == best["name"]:
-            v += ("Y además es el más estable (menor caída típica): destaca tanto en crecimiento "
-                  "como en estabilidad — aunque no es garantía.")
+            v += _v(2,
+                    "Y además es el que menos cae en los malos tramos: destaca en crecimiento y "
+                    "en calma a la vez, aunque eso nunca es una garantía.",
+                    "También es el más tranquilo del grupo, algo poco frecuente: suele haber que "
+                    "renunciar a una de las dos cosas.",
+                    "Encima aguanta mejor las caídas que los demás, así que no obliga a elegir "
+                    "entre crecer y dormir tranquilo.")
         else:
-            v += (f"Pero {_b(safest['name'], S.BLUE)} es el más estable (caída típica "
-                  f"{components.fmt_pct(safest['dd'])} vs {components.fmt_pct(best['dd'])}): hay un "
-                  f"trade-off entre crecimiento y estabilidad según tu tolerancia al riesgo.")
+            sn, sd, bd = (_b(safest["name"], S.BLUE), components.fmt_pct(safest["dd"]),
+                          components.fmt_pct(best["dd"]))
+            v += _v(3,
+                    f"Ahora bien, {sn} es el que mejor aguanta los baches: cae {sd} donde el "
+                    f"primero cae {bd}. Aquí hay que elegir entre crecer más y sufrir menos, y "
+                    f"eso depende de cuánto vaivén puedas sostener sin abandonar el plan.",
+                    f"Pero el trayecto más suave lo ofrece {sn}, con caídas típicas de {sd} "
+                    f"frente a {bd}. Uno promete más y el otro incomoda menos: el mejor es el "
+                    f"que podrías mantener durante todos esos años.",
+                    f"Con todo, {sn} se mueve bastante menos ({sd} de caída habitual, contra "
+                    f"{bd}). No hay un ganador único: gana el que puedas conservar en el peor "
+                    f"momento del camino.")
         if target:
             bestprob = max(rows, key=lambda x: (x["prob"] or 0))
-            v += (f" Para tu meta, el de mayor probabilidad de alcanzarla es "
-                  f"{_b(bestprob['name'], S.GOLD)} ({(bestprob['prob'] or 0) * 100:.0f}%).")
+            pn, pp = _b(bestprob["name"], S.GOLD), (bestprob["prob"] or 0) * 100
+            v += _v(4,
+                    f" Para tu meta concreta, el que más veces la alcanza es {pn}, en el "
+                    f"{pp:.0f}% de los escenarios.",
+                    f" Si lo que manda es llegar a tu objetivo, {pn} lo consigue en {pp:.0f} de "
+                    f"cada 100 futuros simulados.",
+                    f" Medido contra tu meta, {pn} es el que más probabilidades tiene de "
+                    f"lograrla: un {pp:.0f}%.")
         components.verdict_card(S.GOLD, v)
 
     with _ctr, components.card("cand-board"):
@@ -1424,9 +1524,9 @@ def render_multi(runs: list[dict], benchmarks=None, elapsed=None) -> None:
     # ANÁLISIS COMPLETO de cada portafolio (mismas pestañas que el modo de 1 portafolio).
     st.markdown("<div class='dlp-side-title' style='margin-top:18px'>Análisis completo de cada "
                 "portafolio</div>", unsafe_allow_html=True)
-    tabs = st.tabs([f"  {r['name'][:22]}  " for r in results])
-    for i, (tab, r) in enumerate(zip(tabs, results)):
-        with tab:
+    _sel = _pf_tabs("pfsel_multi", [f"  {r['name'][:22]}  " for r in results])
+    for i, r in enumerate(results):
+        with _pf_pane(i == _sel, f"multi_{i}"):
             render_single(r["result"], r["inputs"], r.get("extras") or {}, benchmarks,
                           f"m{i}", with_hero=False, with_actions=False)
 

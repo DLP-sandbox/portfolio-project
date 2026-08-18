@@ -5,6 +5,8 @@ y el sidebar de historial persistente.
 """
 from __future__ import annotations
 
+import re
+
 import streamlit as st
 
 from dashboard import styles as S
@@ -248,11 +250,19 @@ _FINDING_STYLE = {
 }
 
 
+def _rich(texto: str) -> str:
+    """Negrita/cursiva de markdown a HTML real, para textos que se inyectan en HTML crudo."""
+    texto = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", texto)
+    return re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>", texto)
+
+
 def finding_card(finding: dict) -> None:
     """Tarjeta de un hallazgo: acento por sentimiento (verde/azul/rojo) + título + texto claro."""
     color, icon = _FINDING_STYLE.get(finding.get("sentiment", "neutral"), _FINDING_STYLE["neutral"])
-    # Escapamos '$' para que Streamlit no interprete montos como LaTeX.
-    body = (finding.get("text") or "").replace("$", "\\$")
+    # OJO: este texto va dentro de HTML CRUDO, donde Streamlit NO procesa markdown. Por eso
+    # aquí NO se escapa el '$' (la barra invertida se veía literal: "\\$402,171") y la negrita
+    # se convierte a <b> de verdad en vez de dejar los asteriscos a la vista.
+    body = _rich(finding.get("text") or "")
     st.markdown(
         f"<div class='dlp-card dlp-card-left' style='border-left-color:{color};margin-bottom:10px;padding:14px 18px;'>"
         f"<div style='display:flex;align-items:baseline;gap:9px;'>"
@@ -266,7 +276,7 @@ def finding_card(finding: dict) -> None:
 
 
 def verdict_card(color: str, html: str) -> None:
-    """Tarjeta de veredicto para la comparación A vs B (lectura honesta del trade-off)."""
+    """Tarjeta de veredicto de la comparación: qué gana cada portafolio y qué cede."""
     st.markdown(
         f"<div class='dlp-card dlp-card-left' style='border-left-color:{color};'>"
         f"<div class='kpi-label'>Veredicto</div>"
